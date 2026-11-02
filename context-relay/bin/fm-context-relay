@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# fm-context-relay - show, validate and change the context relay settings,
+# measure a transcript, and install or uninstall the hook entries.
+# Run `fm-context-relay --help` for the subcommands; `set --help` states the
+# captain-approval rule for agents.
+set -u
+
+# Resolve this script through symlinks without readlink -f (macOS bash 3.2).
+src=${BASH_SOURCE[0]}
+while [ -L "$src" ]; do
+  dir=$(cd -P "$(dirname -- "$src")" && pwd)
+  src=$(readlink -- "$src")
+  case "$src" in /*) ;; *) src=$dir/$src ;; esac
+done
+here=$(cd -P "$(dirname -- "$src")" && pwd)
+
+command -v python3 >/dev/null 2>&1 || { echo "fm-context-relay: python3 is not installed" >&2; exit 2; }
+exec python3 -I "$here/../lib/fm_context_relay_main.py" cli "$@"

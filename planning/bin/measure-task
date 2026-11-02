@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+"""Measure explicitly recorded Codex sessions without modifying task or rollout data."""
+import argparse
+import datetime as dt
+import json
+import re
+import os
+import shlex
+from pathlib import Path
+
+UNAVAILABLE = 'unavailable'
+FIELDS = ('input_tokens', 'output_tokens', 'cached_input_tokens', 'reasoning_output_tokens')
+
+
+def timestamp(value):
+    try:
+        result = dt.datetime.fromisoformat(value.replace('Z', '+00:00'))
+        return result if result.utcoffset() is not None else None
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def paths_read(payload):
+    """Only literal arguments of simple, direct read commands are observable."""
+    if payload.get('name') not in ('exec_command', 'shell_command'):
+        return []
+    try:
+        args = json.loads(payload.get('arguments', '{}'))
+        words = shlex.split(args.get('cmd', args.get('command', '')))
+    except (ValueError, TypeError, AttributeError):
+        return []
+    if not words or words[0] not in ('cat', 'head', 'tail', 'sed'):
+        return []
+    if any(any(c in word for c in ';|&<>\n') for word in words):
+        return []
+    if words[0] == 'sed':
+        if len(words) < 4 or words[1] != '-n':
+            return []
+        words = words[3:]
+    else:
+        words = words[1:]
+    return [w for w in words if not w.startswith('-') and '/' in w and not any(c in w for c in '*?$`')]
+
+
+def measure(manifest, sessions_dir):
+    ids = manifest.get('session_ids')
+    mode = manifest.get('planning_mode')
+    if mode not in ('native', 'speckit') or not isinstance(ids, list) or not ids or any(not isinstance(x, str) or not x for x in ids) or len(set(ids)) != len(ids):
+        raise ValueError('manifest requires planning_mode and unique nonempty session_ids')
+    result = {'planning_mode': mode, 'session_ids': ids}
+    start, end = timestamp(manifest.get('started_at')), timestamp(manifest.get('finished_at'))
+    result['wall_seconds'] = (end - start).total_seconds() if start and end and end >= start else UNAVAILABLE
+    matches = {sid: [] for sid in ids}
+    for path in sessions_dir.rglob('*.jsonl'):
+        try:
+            with path.open(encoding='utf-8') as f:
+                first = json.loads(f.readline())
+            if first.get('type') == 'session_meta':
+                sid = first.get('payload', {}).get('id')
+                if sid in matches:
+                    matches[sid].append(path)
+        except (OSError, ValueError, AttributeError):
+            continue
+    complete = manifest.get('sessions_complete') is True and all(len(v) == 1 for v in matches.values())
+    rows = []
+    if complete:
+        try:
+            for sid in ids:
+                with matches[sid][0].open(encoding='utf-8') as f:
+                    rows.append([json.loads(line) for line in f if line.strip()])
+        except (OSError, ValueError):
+            complete = False
+    keys = ['active_turn_seconds', 'turns', 'tool_calls', 'compactions', 'tokens', 'restarts', 'resumes', 'post_compaction_reads', 'post_compaction_repeated_reads']
+    if not complete:
+        result.update({k: UNAVAILABLE for k in keys})
+        result['availability_note'] = 'Session list is not declared complete, or a rollout is missing, duplicated, or malformed.'
+        return result
+    turns = tools = compactions = reads = repeated = 0
+    active = 0.0
+    valid_active = True
+    totals = {k: 0 for k in FIELDS}
+    valid_tokens = {k: True for k in FIELDS}
+    resume_count = 0
+    resume_exposed = True
+    for events in rows:
+        pending = None
+        session_turns = 0
+        seen_reads = set()
+        compacted = False
+        last_usage = None
+        session_resumes = 0
+        for row in events:
+            if not isinstance(row, dict):
+                valid_active = False
+                for key in FIELDS:
+                    valid_tokens[key] = False
+                continue
+            typ = row.get('type')
+            payload = row.get('payload') or {}
+            if not isinstance(payload, dict):
+                valid_active = False
+                continue
+            event = payload.get('type') if typ == 'event_msg' else None
+            if event == 'task_started':
+                turns += 1
+                session_turns += 1
+                t = timestamp(row.get('timestamp'))
+                if pending is not None or t is None:
+                    valid_active = False
+                pending = t
+            elif event == 'task_complete':
+                t = timestamp(row.get('timestamp'))
+                if pending is None or t is None or t < pending:
+                    valid_active = False
+                else:
+                    active += (t - pending).total_seconds()
+                pending = None
+            elif typ == 'compacted':
+                compactions += 1
+                compacted = True
+            elif typ == 'response_item' and payload.get('type') in ('function_call', 'custom_tool_call'):
+                tools += 1
+                for path in paths_read(payload):
+                    if compacted:
+                        reads += 1
+                        repeated += path in seen_reads
+                    seen_reads.add(path)
+            elif event == 'token_count':
+                info = payload.get('info')
+                usage = info.get('total_token_usage') if isinstance(info, dict) else None
+                if isinstance(usage, dict):
+                    if last_usage is not None:
+                        for key in FIELDS:
+                            if (isinstance(usage.get(key), int) and isinstance(last_usage.get(key), int)
+                                    and usage[key] < last_usage[key]):
+                                valid_tokens[key] = False
+                    last_usage = usage
+            elif event == 'session_resumed':
+                session_resumes += 1
+        if pending is not None or session_turns == 0:
+            valid_active = False
+        if last_usage is None:
+            for key in FIELDS:
+                valid_tokens[key] = False
+        else:
+            for key in FIELDS:
+                value = last_usage.get(key)
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                    totals[key] += value
+                else:
+                    valid_tokens[key] = False
+        # Absence of a resume event is not proof that the format exposes resumes.
+        resume_exposed = False
+        resume_count += session_resumes
+    result.update(active_turn_seconds=active if valid_active else UNAVAILABLE, turns=turns,
+                  tool_calls=tools, compactions=compactions,
+                  tokens={k: totals[k] if valid_tokens[k] else UNAVAILABLE for k in FIELDS},
+                  restarts=UNAVAILABLE, resumes=resume_count if resume_exposed else UNAVAILABLE,
+                  post_compaction_reads=reads, post_compaction_repeated_reads=repeated)
+    return result
+
+
+def from_task(home, task):
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', task) or '..' in task:
+        raise ValueError('invalid task ID')
+    brief = (home / 'data' / task / 'brief.md').read_text(encoding='utf-8')
+    modes = re.findall(r'^planning_mode:\s*(\S+)\s*$', brief, re.MULTILINE)
+    if len(modes) != 1:
+        raise ValueError('task brief must contain exactly one planning_mode line')
+    files = sorted((home / 'state').glob(task + '.codex-session.*.json'))
+    ids = []
+    for file in files:
+        record = json.loads(file.read_text(encoding='utf-8'))
+        sid = record.get('session')
+        if not isinstance(sid, str) or not sid:
+            raise ValueError('invalid session record: ' + str(file))
+        if sid not in ids:
+            ids.append(sid)
+    if not ids:
+        raise ValueError('no recorded Codex sessions for task')
+    meta = home / 'state' / (task + '.meta')
+    start = None
+    if meta.exists():
+        start = next((line.split('=', 1)[1] for line in meta.read_text().splitlines()
+                      if line.startswith('spawned_at=')), None)
+    status = home / 'state' / (task + '.status')
+    end = None
+    if status.exists():
+        for line in status.read_text().splitlines():
+            match = re.match(r'^done \[at=(\d+)\]:', line)
+            if match:
+                end = dt.datetime.fromtimestamp(int(match.group(1)), dt.timezone.utc).isoformat()
+    return {'planning_mode': modes[0], 'session_ids': ids, 'sessions_complete': True,
+            'started_at': start, 'finished_at': end}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('task', help='task ID, or manifest path with --manifest')
+    parser.add_argument('--home', type=Path, help='Firstmate home (defaults to FM_HOME)')
+    parser.add_argument('--manifest', action='store_true', help='read explicit measurement manifest')
+    parser.add_argument('--sessions-dir', type=Path, default=Path.home() / '.codex/sessions')
+    args = parser.parse_args()
+    try:
+        if args.manifest:
+            manifest = json.loads(Path(args.task).read_text(encoding='utf-8'))
+        else:
+            home = args.home or (Path(os.environ['FM_HOME']) if os.environ.get('FM_HOME') else None)
+            if home is None:
+                raise ValueError('provide --home or FM_HOME')
+            manifest = from_task(home, args.task)
+        if not isinstance(manifest, dict):
+            raise ValueError('manifest must be an object')
+        report = measure(manifest, args.sessions_dir)
+        report['scope_note'] = 'Recorded Codex sessions only; missing session records cannot be detected.'
+        print(json.dumps(report, indent=2))
+    except (OSError, ValueError, TypeError) as exc:
+        parser.exit(2, f'measure-task: {exc}\n')
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+"""Optional Firstmate extension CLI; resolve resources from this script."""
+from pathlib import Path
+import sys
+sys.dont_write_bytecode = True
+root = Path(__file__).resolve().parents[1]
+if sys.version_info < (3, 11):
+    sys.exit("Firstmate Extensions requires Python 3.11 or newer")
+if len(sys.argv) > 1 and sys.argv[1] in ('install', 'uninstall', 'doctor', 'relay', '--version'):
+    sys.path.insert(0, str(root / 'bin'))
+    from distribution import entry
+else:
+    sys.path.insert(0, str(root / 'planning/lib'))
+    from cli import entry
+sys.exit(entry())

@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""Compatibility wrapper for the home planning preference; use fm-extension for scopes."""
+import argparse
+import os
+from pathlib import Path
+import sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
+from cli import main
+from common import PlanningError, home_root
+from config import layers
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('mode', choices=('show', 'native', 'speckit'))
+parser.add_argument('--home', default=os.environ.get('FM_HOME'))
+args = parser.parse_args()
+try:
+    if args.mode == 'show':
+        values, _ = layers(home_root(args.home))
+        print(next(v for s, v in values if v != 'inherit'))
+    else:
+        sys.exit(main(['planning', 'set', '--scope', 'home', '--home', str(home_root(args.home)), '--mode', args.mode]))
+except (OSError, ValueError, PlanningError) as exc:
+    print(f'planning-mode: {exc}', file=sys.stderr)
+    sys.exit(1)

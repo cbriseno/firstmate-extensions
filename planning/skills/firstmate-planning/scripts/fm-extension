@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""Find the copied runtime or source package from this skill's own location."""
+import os
+from pathlib import Path
+import sys
+here = Path(__file__).resolve()
+candidates = [here.parents[1] / 'runtime', *here.parents]
+for candidate in candidates:
+    cli = candidate / 'bin/fm-extension'
+    if cli.is_file() and (candidate / 'planning/pin.json').is_file():
+        os.execv(sys.executable, [sys.executable, str(cli), *sys.argv[1:]])
+print('Planning runtime unavailable; reinstall the planning skills from the extension distribution', file=sys.stderr)
+sys.exit(1)

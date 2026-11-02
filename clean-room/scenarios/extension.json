@@ -1,0 +1,119 @@
+{
+  "name": "Extension: clean clone, portable installation and removal",
+  "level": 1,
+  "network": false,
+  "tools": [
+    {
+      "name": "bash"
+    },
+    {
+      "name": "sh"
+    },
+    {
+      "name": "git"
+    },
+    {
+      "name": "env"
+    },
+    {
+      "name": "dirname"
+    },
+    {
+      "name": "readlink"
+    },
+    {
+      "name": "python3",
+      "version_args": [
+        "--version"
+      ],
+      "expect_version": "Python 3\\.(1[1-9]|[2-9][0-9])"
+    }
+  ],
+  "repos": [
+    {
+      "id": "extension"
+    }
+  ],
+  "steps": [
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension install",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension doctor",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension planning status",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension planning set --scope installation --mode speckit --language es",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension planning status",
+      "expect_exit": 0,
+      "check": "bin/fm-extension planning status | python3 -c 'import json,sys; s=json.load(sys.stdin); assert s[\"installation_default\"]==\"speckit\" and s[\"language\"]==\"es\"'"
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension planning clear --scope installation",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension relay status",
+      "expect_exit": 2
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "python3 -c 'from pathlib import Path; import subprocess,sys; subprocess.run([sys.executable,str(Path.home()/\".codex/skills/firstmate-planning/scripts/fm-extension\"),\"planning\",\"status\"],check=True)'",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension uninstall",
+      "expect_exit": 0,
+      "check": "python3 -c 'from pathlib import Path; assert not (Path.home()/\".codex/skills/firstmate-planning\").exists(); assert not (Path.home()/\".local/share/firstmate-extensions/runtime\").exists()'"
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "git clone --depth 1 --no-local file:///sources/extension '/work/repos/another clone with spaces'",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos",
+      "command": "'./another clone with spaces/bin/fm-extension' install",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos",
+      "command": "'./another clone with spaces/bin/fm-extension' doctor",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos",
+      "command": "'./another clone with spaces/bin/fm-extension' uninstall",
+      "expect_exit": 0
+    }
+  ]
+}

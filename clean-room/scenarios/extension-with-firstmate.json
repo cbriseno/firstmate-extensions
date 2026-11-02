@@ -1,0 +1,108 @@
+{
+  "name": "Extension with Firstmate: clean pair installation and scoped planning",
+  "level": 1,
+  "network": false,
+  "tools": [
+    {
+      "name": "bash"
+    },
+    {
+      "name": "sh"
+    },
+    {
+      "name": "git"
+    },
+    {
+      "name": "env"
+    },
+    {
+      "name": "dirname"
+    },
+    {
+      "name": "readlink"
+    },
+    {
+      "name": "python3",
+      "version_args": [
+        "--version"
+      ],
+      "expect_version": "Python 3\\.(1[1-9]|[2-9][0-9])"
+    }
+  ],
+  "repos": [
+    {
+      "id": "extension"
+    },
+    {
+      "id": "firstmate"
+    }
+  ],
+  "steps": [
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension install --home /work/repos/firstmate --harness codex",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension doctor --home /work/repos/firstmate",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension planning set --scope home --home /work/repos/firstmate --mode native",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension planning set --scope project --home /work/repos/firstmate --project /work/repos/extension --mode speckit",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension planning status --home /work/repos/firstmate --project /work/repos/extension",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension planning set --scope project --home /work/repos/firstmate --project /work/repos/extension --mode native",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension planning resolve --home /work/repos/firstmate --project /work/repos/extension",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension relay status --home /work/repos/firstmate",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension doctor --home /work/repos/firstmate --require-relay",
+      "expect_exit": 2
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "python3 -c 'import json,os,subprocess; from pathlib import Path; hooks=json.loads((Path.home()/\".codex/hooks.json\").read_text()); handler=hooks[\"hooks\"][\"SessionStart\"][0][\"hooks\"][0][\"command\"]; p=subprocess.run(handler,shell=True,input=\"{}\",text=True); assert p.returncode==0'",
+      "expect_exit": 0
+    },
+    {
+      "source": "README.md / Guided installation, quick start and uninstall",
+      "cwd": "/work/repos/extension",
+      "command": "bin/fm-extension uninstall",
+      "expect_exit": 0
+    }
+  ]
+}

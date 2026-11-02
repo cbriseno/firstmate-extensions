@@ -1,0 +1,16 @@
+
+Final successor step after durable role acceptance and verified current home ownership.
+Preserve this package's policy, safe point and receipts; this step grants no new relay authority.
+
+Wait for the old frontend to exit through its existing native exit owner; never improvise signals or modify a daemon.
+Inspect the exact old pane from authorization.json using the package's explicit Herdr session.
+@INSPECT@
+Status inspected corroborates the original shell, absent frontend, no other tty process and empty input queue.
+Visible history and the retired-primary marker can remain in that inactive shell. Also inspect for an ambiguous composer or active work.
+After inspecting the dedicated original shell and proving no pending work/input, record your own confirmation:
+@READY@ --observed-screen-sha256 HASH_FROM_INSPECT --confirmation 'I inspected the retired dedicated empty shell and found no pending input or work'
+Then finalize:
+@FINALIZE@
+After inspection, ready and finalize may run in one call with &&; both retain every guard.
+A refusal preserves the pane and states the reason. Record it and continue your role without closing by other means.
+Never claim closure without status closed or already-closed from the finalizer.

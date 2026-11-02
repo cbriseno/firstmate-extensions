@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Source in the original dedicated Herdr shell BEFORE starting a primary:
+#   source /extension/bin/fm-context-relay-shell --home /home -- HARNESS ARGS...
+# It returns normally unless that primary recorded retirement. After retirement
+# the original shell discards input without parsing commands until pane-close
+# closes it. No child keeper, signal, lock mutation or pane close is performed.
+# Must be sourced: executing another shell would invalidate finalizer identity.
+# Internal driver entry: source fm-context-relay-shell --park HANDOFF only
+# after native exit. Verifies this exact shell against the captured predecessor.
+if [ "${1:-}" = --help ]; then
+  sed -n '2,7p' "${BASH_SOURCE[0]}"
+elif [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  echo 'must be sourced in the original dedicated shell' >&2
+  exit 2
+elif [ "${1:-}" = --park ] && [ "$#" -eq 2 ]; then
+  if python3 -I - "$2" "$$" <<'PY'
+import json,os,sys
+from pathlib import Path
+directory=Path(sys.argv[1]); pid=int(sys.argv[2])
+try:
+    assert directory.is_absolute() and directory.resolve()==directory
+    auth=json.loads((directory/'authorization.json').read_text())
+    home=Path(auth['home'])
+    assert directory.parent==home/'data/context-relay/attempts'
+    attempt=json.loads((directory/'attempt.json').read_text())
+    retired=json.loads((directory/'outgoing-retired.json').read_text())
+    prepared=json.loads((directory/'pane-close-prepared.json').read_text())
+    shell=prepared['predecessor']['shell']
+    assert auth['park_after_exit'] and attempt['state']=='retired-awaiting-exit'
+    assert retired['checkpoint_sha256']==attempt['checkpoint_sha256']
+    assert shell['pid']==pid and not Path('/proc/%s'%auth['old_frontend_pid']).exists()
+    stat=Path('/proc/%s/stat'%pid).read_text().rsplit(')',1)[1].split()
+    assert stat[19]==shell['start'] and int(stat[4])==shell['tty'] and int(stat[3])==shell['session']
+    (directory/'shell-parked.json').write_text(json.dumps({'pid':pid,'start':shell['start']})+'\n')
+except (OSError,ValueError,KeyError,AssertionError):
+    sys.exit(1)
+PY
+  then
+    printf '\nRetired primary. Input is discarded; awaiting successor acceptance and pane-close.\n'
+    stty -icanon -echo
+    while IFS= read -r -n 1 _fm_relay_discard; do :; done
+  else
+    echo 'Cannot verify retired shell; pane preserved.' >&2
+    return 1
+  fi
+elif [ "${1:-}" != --home ] || [ "${3:-}" != -- ] || [ "$#" -lt 4 ]; then
+  echo 'usage: source fm-context-relay-shell --home HOME -- HARNESS ARGS...' >&2
+  return 2
+else
+  _fm_relay_shell_home=$2
+  shift 3
+  export FM_CONTEXT_RELAY_PARK_SHELL=$$
+  "$@"
+  _fm_relay_shell_rc=$?
+  if python3 -I - "$_fm_relay_shell_home" "$$" <<'PY'
+import json,sys
+from pathlib import Path
+try:
+    home=Path(sys.argv[1]); active=json.loads((home/'state/context-relay/active.json').read_text())
+    directory=Path(active['directory'])
+    assert directory.parent == home/'data/context-relay/attempts'
+    record=json.loads((directory/'outgoing-retired.json').read_text())
+    prepared=json.loads((directory/'pane-close-prepared.json').read_text())
+    assert record['role']=='read-only retired primary'
+    assert str(prepared['predecessor']['shell']['pid'])==sys.argv[2]
+except (OSError,ValueError,KeyError,AssertionError):
+    sys.exit(1)
+PY
+  then
+    printf '\nRetired primary. Input is discarded; awaiting successor acceptance and pane-close.\n'
+    stty -icanon -echo
+    while IFS= read -r -n 1 _fm_relay_discard; do :; done
+  fi
+  return "$_fm_relay_shell_rc"
+fi

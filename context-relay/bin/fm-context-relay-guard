@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# PreToolUse admission barrier. Same registration shape as the measuring hook.
+# Usage: fm-context-relay-guard --home HOME HARNESS PreToolUse
+# Inert without an active assisted attempt; never launches or acquires a lock.
+set -u
+if [ "${1:-}" != --home ] || [ "$#" -lt 2 ]; then
+  exit 0
+fi
+relay_home=$2
+[ -e "$relay_home/state/context-relay/active.json" ] || exit 0
+here=$(cd -P "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if ! command -v python3 >/dev/null 2>&1; then
+  exit 0
+fi
+case "${3:-}" in
+  codex|claude) harness=$3 ;;
+  *) exit 0 ;;
+esac
+# Preserve the intentional active-attempt denial. Runtime/import failures
+# stay silent and fail open, and this barrier never runs on Stop.
+output=$("$here/fm-context-relay" --home "$relay_home" relay guard --harness "$harness" 2>&1)
+rc=$?
+if [ "$rc" -eq 2 ] && [[ "$output" == '{"hookSpecificOutput":'* ]]; then
+  printf '%s\n' "$output" >&2
+  exit 2
+fi
+exit 0

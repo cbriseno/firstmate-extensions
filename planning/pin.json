@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "version": "1.2.4",
+  "commit": "43486672fe826d230d884815be7cc2026469a6ba",
+  "manifest_sha256": "4018281dcb2e940411c45ae5fce3e7d6a85386593ebf1b7ec20cf9c1d8c61fbe",
+  "helpers": {
+    "check-prerequisites.sh": "00166e83797b010781c38365832a836b27db0bbfca1609319eb01e02760950a5",
+    "core.py": "e5a6b8b60abab9eae889b93b50854ba3a5b0b84b76f368b92fc454e6f3801daa"
+  },
+  "digest": "0ebd834a940743081bd6129771cd926c91e8ba3ffe0b01b97e64dd27dcebd61a"
+}

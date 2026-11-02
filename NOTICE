@@ -1,0 +1,11 @@
+Firstmate Extensions
+Copyright (c) 2026 cbriseno
+
+This distribution includes a restricted static subset of Spec Kit v1.2.4,
+https://github.com/github/spec-kit, commit
+43486672fe826d230d884815be7cc2026469a6ba.
+Spec Kit is copyright GitHub, Inc., licensed under the MIT License.
+Its original license is preserved in vendor/spec-kit/1.2.4/LICENSE and copied
+into prepared projects. The vendor manifest records source hashes and adaptations.
+The local stage helpers and restricted skill wrappers are integration code;
+this distribution does not include or claim the full upstream CLI.

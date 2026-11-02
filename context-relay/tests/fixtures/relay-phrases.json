@@ -1,0 +1,174 @@
+[
+  {
+    "message": "activar relevo automático",
+    "action": "enable"
+  },
+  {
+    "message": "activa el relevo automático",
+    "action": "enable"
+  },
+  {
+    "message": "enable automatic relay",
+    "action": "enable"
+  },
+  {
+    "message": "turn on automatic relay",
+    "action": "enable"
+  },
+  {
+    "message": "  ¡ACTIVA EL RELEVO AUTOMATICO!  ",
+    "action": "enable"
+  },
+  {
+    "message": "Por favor, habilita el relevo automático",
+    "action": "enable"
+  },
+  {
+    "message": "Please switch on automatic relay",
+    "action": "enable"
+  },
+  {
+    "message": "Quiero activar el relevo automático",
+    "action": "enable"
+  },
+  {
+    "message": "I want to enable automatic relay, please",
+    "action": "enable"
+  },
+  {
+    "message": "desactivar relevo automático",
+    "action": "disable"
+  },
+  {
+    "message": "desactiva el relevo automático",
+    "action": "disable"
+  },
+  {
+    "message": "disable automatic relay",
+    "action": "disable"
+  },
+  {
+    "message": "turn off automatic relay",
+    "action": "disable"
+  },
+  {
+    "message": "¡APAGA EL RELEVO AUTOMÁTICO!",
+    "action": "disable"
+  },
+  {
+    "message": "Please switch off automatic relay",
+    "action": "disable"
+  },
+  {
+    "message": "estado del relevo",
+    "action": "status"
+  },
+  {
+    "message": "relay status",
+    "action": "status"
+  },
+  {
+    "message": "ESTADO DEL RELEVO",
+    "action": "status"
+  },
+  {
+    "message": "relevo",
+    "action": "assisted"
+  },
+  {
+    "message": "RELEVO",
+    "action": "assisted"
+  },
+  {
+    "message": "umbral:600K",
+    "action": "thresholds"
+  },
+  {
+    "message": "compactaciones:5",
+    "action": "thresholds"
+  },
+  {
+    "message": "umbral:600K o compactaciones:5",
+    "action": "thresholds"
+  },
+  {
+    "message": "umbral:600K or compactaciones:5",
+    "action": "thresholds"
+  },
+  {
+    "message": "codex: compactaciones:5 umbral:70%",
+    "action": "thresholds"
+  },
+  {
+    "message": "¿puedes activar el relevo automático?",
+    "action": "none"
+  },
+  {
+    "message": "can you enable automatic relay?",
+    "action": "none"
+  },
+  {
+    "message": "how do I enable automatic relay?",
+    "action": "none"
+  },
+  {
+    "message": "activar relevo automático?",
+    "action": "none"
+  },
+  {
+    "message": "Hablamos de activar relevo automático",
+    "action": "none"
+  },
+  {
+    "message": "we discussed enabling automatic relay",
+    "action": "none"
+  },
+  {
+    "message": "no activar relevo automático",
+    "action": "none"
+  },
+  {
+    "message": "do not enable automatic relay",
+    "action": "none"
+  },
+  {
+    "message": "\"enable automatic relay\"",
+    "action": "none"
+  },
+  {
+    "message": "Ejemplo: activa el relevo automático",
+    "action": "none"
+  },
+  {
+    "message": "si hay problemas, activa el relevo automático",
+    "action": "none"
+  },
+  {
+    "message": "enable automatic relay when I return",
+    "action": "none"
+  },
+  {
+    "message": "enable automatic relay and turn off automatic relay",
+    "action": "none"
+  },
+  {
+    "message": "no desactives el relevo automático",
+    "action": "none"
+  },
+  {
+    "message": "umbral:600K o",
+    "action": "none"
+  },
+  {
+    "message": "What does relay status mean?",
+    "action": "none"
+  },
+  {
+    "message": "",
+    "action": "none"
+  },
+  {
+    "message": "por favor",
+    "action": "none"
+  }
+]

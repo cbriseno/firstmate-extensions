@@ -1,0 +1,108 @@
+---
+name: speckit-plan
+description: Spec Kit plan stage, only within an explicitly assigned Firstmate planning cycle.
+---
+
+# Restricted Spec Kit core 1.2.4: plan
+
+This adapter derives from the pinned MIT upstream command. The following limits
+outrank every instruction below. Read project AGENTS.md/CLAUDE.md and constitution;
+report conflicts. Obey the task brief and its delivery mode. Never run extensions,
+presets, hooks, automatic handoffs, workflows, git mutations, issue commands, external
+writes, or an absent CLI. Do not edit AGENTS.md or CLAUDE.md. No trust changes.
+Only the five installed stages exist; report any reference to another command.
+Use static `.specify/templates/` directly; no template resolution CLI is needed.
+Firstmate assigns an explicit SPECIFY_FEATURE_DIRECTORY within this project;
+set SPECIFY_FEATURE_NO_PERSIST=1. Never write `.specify/feature.json`.
+Run `python3 .specify/scripts/python/core.py plan --json` for paths and prerequisites.
+This helper creates only missing spec/plan/tasks templates when the stage needs one;
+review and fill their content under the assigned authority. It does not call a model.
+Stage prompts and generated artifacts default to English; follow the brief's explicit
+planning_language for authored prose. Report results to Firstmate; do not dispatch.
+
+## User Input
+
+```text
+$ARGUMENTS
+```
+
+You **MUST** consider the user input before proceeding (if not empty).
+
+
+## Outline
+
+1. **Setup**: Run `python3 .specify/scripts/python/core.py plan --json` from repo root and parse JSON for FEATURE_SPEC, IMPL_PLAN, FEATURE_DIR, BRANCH. For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
+
+2. **Load context**: Read FEATURE_SPEC and `.specify/memory/constitution.md`. Load IMPL_PLAN template (already copied).
+
+3. **Execute plan workflow**: Follow the structure in IMPL_PLAN template to:
+   - Fill Technical Context (mark unknowns as "NEEDS CLARIFICATION")
+   - Fill Constitution Check section from constitution
+   - Evaluate gates (ERROR if violations unjustified)
+   - Phase 0: Generate research.md (resolve all NEEDS CLARIFICATION)
+   - Phase 1: Generate data-model.md, contracts/, quickstart.md
+   - Re-evaluate Constitution Check post-design
+
+
+## Completion Report
+
+Command ends after Phase 1 design. Report branch, IMPL_PLAN path, and generated artifacts.
+
+## Phases
+
+### Phase 0: Outline & Research
+
+1. **Extract unknowns from Technical Context** above:
+   - For each NEEDS CLARIFICATION → research task
+   - For each dependency → best practices task
+   - For each integration → patterns task
+
+2. **Generate and dispatch research agents**:
+
+   ```text
+   For each unknown in Technical Context:
+     Task: "Research {unknown} for {feature context}"
+   For each technology choice:
+     Task: "Find best practices for {tech} in {domain}"
+   ```
+
+3. **Consolidate findings** in `research.md` using format:
+   - Decision: [what was chosen]
+   - Rationale: [why chosen]
+   - Alternatives considered: [what else evaluated]
+
+**Output**: research.md with all NEEDS CLARIFICATION resolved
+
+### Phase 1: Design & Contracts
+
+**Prerequisites:** `research.md` complete
+
+1. **Extract entities from feature spec** → `data-model.md`:
+   - Entity name, fields, relationships
+   - Validation rules from requirements
+   - State transitions if applicable
+
+2. **Define interface contracts** (if project has external interfaces) → `/contracts/`:
+   - Identify what interfaces the project exposes to users or other systems
+   - Document the contract format appropriate for the project type
+   - Examples: public APIs for libraries, command schemas for CLI tools, endpoints for web services, grammars for parsers, UI contracts for applications
+   - Skip if project is purely internal (build scripts, one-off tools, etc.)
+
+3. **Create quickstart validation guide** → `quickstart.md`:
+   - Document runnable validation scenarios that prove the feature works end-to-end
+   - Include prerequisites, setup commands, test/run commands, and expected outcomes
+   - Use links or references to contracts and data model details instead of duplicating them
+   - Do not include full implementation code, model/service/controller bodies, migrations, or complete test suites
+   - Keep this artifact as a validation/run guide; implementation details belong in `tasks.md` and the implementation phase
+
+**Output**: data-model.md, /contracts/*, quickstart.md
+
+## Key rules
+
+- Use absolute paths for filesystem operations; use project-relative paths for references in documentation
+- ERROR on gate failures or unresolved clarifications
+
+## Done When
+
+- [ ] Plan workflow executed and design artifacts generated
+- [ ] Completion reported to user with branch, plan path, and generated artifacts

@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "module": "firstmate-extensions",
+  "resolver_version": "1.0.0",
+  "minimum_python": "3.11",
+  "platform": {
+    "linux": "supported; local fixtures and clean-clone checks",
+    "macos": "unsupported",
+    "windows": "unsupported"
+  },
+  "firstmate_surface": "scoped skills and durable task briefs; no dispatcher hooks or tracked core edits",
+  "spec_kit": {
+    "version": "1.2.4",
+    "commit": "43486672fe826d230d884815be7cc2026469a6ba",
+    "subset": "static templates, five restricted stages and local helpers",
+    "network_required": false
+  },
+  "harnesses": {
+    "codex": {
+      "project_skills": ".agents/skills",
+      "fixture_projection": true,
+      "native_discovery": "unverified",
+      "trust": "not granted"
+    },
+    "claude": {
+      "project_skills": ".claude/skills",
+      "fixture_projection": true,
+      "native_discovery": "unverified",
+      "trust": "not granted"
+    }
+  },
+  "checks": [
+    "planning/tests/scopes.test.py",
+    "planning/tests/install.test.py",
+    "tests/distribution.test.py",
+    "tests/run.py",
+    "clean-room/scenarios/extension.json",
+    "clean-room/scenarios/extension-with-firstmate.json"
+  ],
+  "not_claimed": [
+    "native dispatch enforcement",
+    "native skill discovery",
+    "model reasoning quality",
+    "installed activation",
+    "general CLI compatibility"
+  ],
+  "version": "0.1.0",
+  "minimum_git_tested": "2.39.5",
+  "bash_tested": "5.2",
+  "relay": {
+    "default_mode": "warn",
+    "automatic_default": "off",
+    "kill_switch": "auto off --mode warn|assisted",
+    "firstmate_tested": "33fc9463",
+    "required_firstmate_files": [
+      "bin/fm-lock-release.sh",
+      "bin/fm-lock-release.py",
+      "bin/fm-session-lock-lib.sh",
+      "bin/fm-primary-scope-lib.sh"
+    ],
+    "herdr_tested": {
+      "version": "0.9.3",
+      "protocol": 22
+    },
+    "codex_tested": "0.166.0",
+    "claude_code_tested": "2.1.316",
+    "evidence": "Prior Linux native acceptance; not rerun during distribution export",
+    "unsupported": [
+      "shared Codex daemon",
+      "Claude production 1M sessions",
+      "macOS",
+      "Windows"
+    ],
+    "missing_firstmate": "refuse dependent operations with a diagnostic",
+    "missing_herdr": "relay unavailable; no alternate terminal launch"
+  }
+}

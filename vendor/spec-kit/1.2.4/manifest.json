@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "version": "1.2.4",
+  "upstream": "https://github.com/github/spec-kit",
+  "tag": "v1.2.4",
+  "tag_object": "10640fb7e9a879c47e96b832c2f7484fa940f959",
+  "commit": "43486672fe826d230d884815be7cc2026469a6ba",
+  "license": "MIT",
+  "files": {
+    "LICENSE": {
+      "sha256": "2510b446bc1f0cf9702453075d20cd88631e20e5642658edb7325d9c1eb534f7",
+      "upstream_path": "LICENSE",
+      "upstream_sha256": "2510b446bc1f0cf9702453075d20cd88631e20e5642658edb7325d9c1eb534f7",
+      "adaptation": "verbatim"
+    },
+    "templates/spec-template.md": {
+      "sha256": "3945437fc35cd30a5b2bf7beea680337c3516826d3efa5a6b92c4a7eca1ba28e",
+      "upstream_path": "templates/spec-template.md",
+      "upstream_sha256": "3945437fc35cd30a5b2bf7beea680337c3516826d3efa5a6b92c4a7eca1ba28e",
+      "adaptation": "restricted-firstmate-adapter-v1: static stage names; no unsupported command references"
+    },
+    "templates/plan-template.md": {
+      "sha256": "2051f75a3623b84be35c614f6d28b3b3c4a057f01dea337d48cdea40b016e432",
+      "upstream_path": "templates/plan-template.md",
+      "upstream_sha256": "dfba43da2b2a207ff8c177a0fba03af074fd45e261696b4b64172041fad2e992",
+      "adaptation": "restricted-firstmate-adapter-v1: static stage names; no unsupported command references"
+    },
+    "templates/tasks-template.md": {
+      "sha256": "4daa572cb7c0fc8ceaa14d4ee65cc16fb2e8fcd8030928c45b5a67c3163ec784",
+      "upstream_path": "templates/tasks-template.md",
+      "upstream_sha256": "1e448e9153462e8c5b5a55231a54c756d870a82950d4dd9425a2bf5b7008a0d9",
+      "adaptation": "restricted-firstmate-adapter-v1: static stage names; no unsupported command references"
+    },
+    "templates/checklist-template.md": {
+      "sha256": "c0cf8b59d7dcea38299378bfe43768fede0e81a0db1e3f79c7450bbbbd19dd34",
+      "upstream_path": "templates/checklist-template.md",
+      "upstream_sha256": "c65b7f10aa9a965ea9c7f4e879d4ab0240665473731c5e9e638c4acb3ca9afc4",
+      "adaptation": "restricted-firstmate-adapter-v1: static stage names; no unsupported command references"
+    },
+    "templates/constitution-template.md": {
+      "sha256": "ce7549540fa45543cca797a150201d868e64495fdff39dc38246fb17bd4024b3",
+      "upstream_path": "templates/constitution-template.md",
+      "upstream_sha256": "ce7549540fa45543cca797a150201d868e64495fdff39dc38246fb17bd4024b3",
+      "adaptation": "restricted-firstmate-adapter-v1: static stage names; no unsupported command references"
+    },
+    "skills/speckit-specify/SKILL.md": {
+      "sha256": "d4246a6e477a6e8a9eb16bab0c46f465c46c3725bf150488ef8f12a6a0145205",
+      "upstream_path": "templates/commands/specify.md",
+      "upstream_sha256": "7d5a88e6afa504f1d16503df6bf8664f30e3df812b83f9a456a2eaccaeb638ee",
+      "adaptation": "restricted-firstmate-adapter-v1: remove hooks/handoffs/git/context writes; static templates and bounded helper"
+    },
+    "skills/speckit-clarify/SKILL.md": {
+      "sha256": "dec251139edae6e5ea0f3831ce4b769a695d53d01c880261d6cea4715c045662",
+      "upstream_path": "templates/commands/clarify.md",
+      "upstream_sha256": "5260d798c5671deb9ac7e59d6ffdb69b30c26fb28878d3cc25e30fb71cacc734",
+      "adaptation": "restricted-firstmate-adapter-v1: remove hooks/handoffs/git/context writes; static templates and bounded helper"
+    },
+    "skills/speckit-plan/SKILL.md": {
+      "sha256": "57c644ed77594c52c59f97b0db2262c7017cd48256b3c1fb6739eda8556fa578",
+      "upstream_path": "templates/commands/plan.md",
+      "upstream_sha256": "206a0386d20b3eed4c087a4d9de247a3e7b2b59348bf3c801fc74f63ca2726a5",
+      "adaptation": "restricted-firstmate-adapter-v1: remove hooks/handoffs/git/context writes; static templates and bounded helper"
+    },
+    "skills/speckit-tasks/SKILL.md": {
+      "sha256": "6392940b2ad7a1b0d49eaae5ab063be77598c64f62c94b786cabfc61c9113d6e",
+      "upstream_path": "templates/commands/tasks.md",
+      "upstream_sha256": "2f9176c6e7c23d2a83d2bd018ffa1e67aee977389a57f2a3fe35fe987b425944",
+      "adaptation": "restricted-firstmate-adapter-v1: remove hooks/handoffs/git/context writes; static templates and bounded helper"
+    },
+    "skills/speckit-analyze/SKILL.md": {
+      "sha256": "6ce5db7ae95c96dfa55b7b1bf1fd0e59f2c35ecb6a8cd9c8930703c1c6b52981",
+      "upstream_path": "templates/commands/analyze.md",
+      "upstream_sha256": "ffe0640ebe778795737937f2d4ec6f0149d7d55b72692e25369a668f985d1dfe",
+      "adaptation": "restricted-firstmate-adapter-v1: remove hooks/handoffs/git/context writes; static templates and bounded helper"
+    }
+  }
+}

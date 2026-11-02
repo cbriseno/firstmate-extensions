@@ -1,0 +1,50 @@
+{
+  "name": "Day Attendant: local core",
+  "level": 1,
+  "network": false,
+  "tools": [
+    {
+      "name": "bash"
+    },
+    {
+      "name": "sh"
+    },
+    {
+      "name": "git"
+    },
+    {
+      "name": "python3",
+      "version_args": [
+        "--version"
+      ],
+      "expect_version": "Python 3\\.(1[1-9]|[2-9][0-9])"
+    }
+  ],
+  "repos": [
+    {
+      "id": "app"
+    }
+  ],
+  "steps": [
+    {
+      "source": "README.md / Start using it; absolute checkout path substituted",
+      "cwd": "/work/repos/app",
+      "command": "python3 -B /work/repos/app/day-attendant.py init --zone Etc/UTC --name 'My responsibilities'",
+      "files": [
+        "$XDG_STATE_HOME/day-attendant/profiles/default"
+      ]
+    },
+    {
+      "source": "README.md / Agent access and validation",
+      "cwd": "/work/repos/app",
+      "command": "python3 -B -m unittest discover -s tests -q",
+      "timeout": 300
+    },
+    {
+      "source": "README.md / Agent access and validation",
+      "cwd": "/work/repos/app",
+      "command": "python3 -B scripts/test_system.py",
+      "timeout": 300
+    }
+  ]
+}
