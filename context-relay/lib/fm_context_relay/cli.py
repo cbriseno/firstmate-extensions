@@ -9,6 +9,8 @@ import glob
 import json
 import os
 import sys
+from pathlib import Path
+from . import admission
 
 from . import VERSION
 from . import common
@@ -34,6 +36,16 @@ models.<model>.<trigger|request_tokens|stop_new_work_tokens|window_tokens|compac
 Token values accept 250000, 250k or 1.5M; --unset removes a key.
 relay_policy is an atomic per-harness object. Pressure does not replace policy.
 Use auto authorize for automatic relay; set cannot authorize it."""
+
+
+def cmd_rollback(args, paths):
+    from . import activation
+    return activation.rollback(args, paths)
+
+
+def cmd_intent(args, paths):
+    from . import intent
+    return intent.run(args, paths)
 
 
 def looks_like_home(path):
@@ -79,6 +91,7 @@ def _session_view(record, settings):
         "window_tokens_observed": record.get("window_tokens_observed"),
         "compactions": record.get("compactions"),
         "effective": record.get("effective"),
+        "admission": admission.evidence(record, policy),
         "relay": relay,
         "request": {"level": request.get("level", 0), "opened_at": request.get("opened_at"), "reasons": request.get("reasons", [])[-3:]},
         "delivered": record.get("delivered"),
@@ -150,6 +163,7 @@ def cmd_show(args, paths):
         line = "  %s %s · model %s · context %s · compactions %s (%s) · trigger %s" % (
             item["harness"], (item["session_id"] or "")[:8], item["model"] or "unknown", context,
             comp.get("count", 0), comp.get("counting") or "?", eff.get("effective_trigger") or "?")
+        line += " · " + admission.describe(item["admission"])
         if item["window_tokens_observed"]:
             line += " · observed window %s" % common.format_tokens(item["window_tokens_observed"])
         print(line)
@@ -164,7 +178,7 @@ def cmd_show(args, paths):
             print("    relay policy configured: evaluation pending at next hook; historical warnings do not establish eligibility")
         if item["pending"]:
             print("    avisos pendientes: %s" % ", ".join(item["pending"]))
-    print("Mode %s: hooks measure and warn; assisted relay requires confirmation and explicit commands (relay --help)." % settings.value("relay_mode"))
+    print("Mode %s: hooks measure and warn; assisted relay requires confirmation and explicit commands (relay --help)." % settings.value('relay_mode'))
     return 0
 
 
@@ -327,6 +341,7 @@ def cmd_measure(args, paths):
 
 
 def cmd_install(args, paths):
+    from . import install, activation
     if args.assisted:
         return activation.run(args, paths)
     if args.backup_dir or args.runtime_root:
@@ -335,6 +350,7 @@ def cmd_install(args, paths):
 
 
 def cmd_uninstall(args, paths):
+    from . import install
     return install.uninstall(paths.home, args.harness, dry_run=args.dry_run, codex_home=args.codex_home)
 
 
@@ -350,7 +366,9 @@ def build_parser():
     assisted.add_parser(sub)
     automatic.add_parser(sub)
     thresholds.add_parser(sub)
-    intent.add_parser(sub)
+    p = sub.add_parser("relay-intent", help="classify a standalone phrase without changing state or starting relay")
+    p.add_argument("message", help="current message, passed verbatim as one argument")
+    p.set_defaults(func=cmd_intent)
 
     p = sub.add_parser("show", help="effective settings, provenance and measured sessions")
     p.add_argument("--json", action="store_true")
@@ -390,8 +408,8 @@ def build_parser():
 
     p = sub.add_parser('rollback', help='restore an install --assisted backup; refuse later edits')
     p.add_argument('backup_dir')
-    p.add_argument('--dry-run', action='store_true')
-    p.set_defaults(func=activation.rollback)
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_rollback)
 
     p = sub.add_parser("uninstall", help="remove owned hook entries only")
     p.add_argument("--harness", choices=("claude", "codex"), default="claude")
@@ -407,16 +425,16 @@ def main(argv, sanitized=False):
     # Status, hook guards and the kill switch remain usable everywhere.
     # Refuse every lifecycle entry point before resolving homes or touching a backend.
     if not processes.safety_evidence_available():
-        restricted = ((args.command == 'relay' and args.action not in ('status', 'guard', 'abort'))
+        restricted = ((args.command == "relay" and args.action not in ("status", 'guard', 'abort'))
                       or args.command == 'pane-close'
                       or (args.command == 'auto' and args.auto_action == 'authorize')
-                      or (args.command == 'set' and args.key == 'relay_mode'
+                      or (args.command == "set" and args.key == 'relay_mode'
                           and not args.unset and args.value in ('assisted', 'auto')))
         if restricted:
             print(json.dumps(dict(status='unavailable', code=processes.RELAY_UNAVAILABLE_CODE,
                                   reason=processes.RELAY_UNAVAILABLE_MESSAGE)))
             return 1
-    if args.command == 'relay' and args.action == 'start' and not sanitized:
+    if args.command == "relay" and args.action == 'start' and not sanitized:
         # Firstmate supports Python-hosted harnesses and classifies their argv.
         # Keep user-provided harness names/quotes out of this interpreter's
         # argv so supported lock release reaches the real native ancestor.

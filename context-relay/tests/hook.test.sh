@@ -196,18 +196,18 @@ assert_eq "$OUT" "" "the same compaction does not remind twice"
 write_config "$H" "$TOKCFG"
 T6=$TMP/model.jsonl
 python3 -I "$FIXTURE" claude-start "$T6"
-python3 -I "$FIXTURE" claude-usage "$T6" msg_1 300000 --model claude-sonnet-5-5
+python3 -I "$FIXTURE" claude-usage "$T6" msg_1 300000 --model claude-unlisted-model
 run_hook "$H" claude PostToolBatch "$(payload PostToolBatch s-model "$T6")"
-assert_contains "$OUT" "claude-sonnet-5-5 has no settings" "unknown model: one warn-only notice"
+assert_contains "$OUT" "claude-unlisted-model has no model pressure overrides" "unknown model: one optional-overrides notice"
 assert_not_contains "$OUT" "Early context warning" "unknown model has no token thresholds"
 R=$(record_path "$H" claude s-model)
-assert_eq "$(jget "$R" 'd["effective"]["known_model"]')" false "unknown model recorded as warn-only"
+assert_eq "$(jget "$R" 'd["effective"]["known_model"]')" false "unknown model has no catalog entry"
 run_hook "$H" claude PostToolBatch "$(payload PostToolBatch s-model "$T6")"
 assert_eq "$OUT" "" "unknown-model notice not repeated"
 python3 -I "$FIXTURE" claude-usage "$T6" msg_2 310000 --model claude-opus-5-5
 run_hook "$H" claude PostToolBatch "$(payload PostToolBatch s-model "$T6")"
 assert_contains "$OUT" "model claude-opus-5-5" "after the model change the new model's thresholds apply"
-assert_eq "$(jget "$R" 'd["models_seen"]')" '["claude-sonnet-5-5", "claude-opus-5-5"]' "model history kept"
+assert_eq "$(jget "$R" 'd["models_seen"]')" '["claude-unlisted-model", "claude-opus-5-5"]' "model history kept"
 assert_eq "$(jget "$R" 'd["effective"]["request_tokens"]')" 250000 "effective thresholds follow the current model"
 
 # --- invalid settings: last valid values and one notice ---------------------------

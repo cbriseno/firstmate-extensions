@@ -77,9 +77,12 @@ context-relay/bin/fm-context-relay --home "$FIRSTMATE_HOME" validate --json
 context-relay/bin/fm-context-relay measure --harness codex "$TRANSCRIPT" --json
 ```
 
-The example configuration is installed only if absent. Unknown models are
-`warn_only`, without inferred token limits. The named profiles in the example are
-explicit examples, not forced model preferences. Observed windows take precedence
+The example configuration is installed only if absent. Unlisted models keep
+`known_model=false`, without inferred token limits; their automatic measurement
+admission uses current harness-observed evidence, as specified in [SAFETY.md](SAFETY.md). The named profiles in the example are
+explicit examples, not forced model preferences. The data-only `model-catalog.json`
+contains optional per-model pressure overrides; an explicit home `models` table
+still replaces it in full. Observed windows take precedence
 over assumptions. Invalid configuration is reported; it must never authorize relay.
 
 Claude pressure uses input plus cache-read/cache-write from the last actual call,
@@ -126,6 +129,12 @@ context-relay/bin/fm-context-relay --home "$FIRSTMATE_HOME" auto authorize \
 context-relay/bin/fm-context-relay --home "$FIRSTMATE_HOME" auto status
 context-relay/bin/fm-context-relay --home "$FIRSTMATE_HOME" auto off --mode warn
 ```
+
+The [authorization binding](SAFETY.md#authorization-binding) excludes pure extension
+data while retaining executable hashes, a protocol version, and the existing
+Firstmate HEAD and primitive hashes. Legacy authority is refused rather than migrated;
+each new grant still requires the operator actual words. Status and notices identify
+the changed component. Measurement admission is separate from native acceptance.
 
 Authorization does not relax safe-point, runtime, native ownership, launch-once,
 acceptance or panel-close guards. The kill switch revokes the current generation

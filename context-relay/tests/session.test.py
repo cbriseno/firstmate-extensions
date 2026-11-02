@@ -1,13 +1,15 @@
 """Warning decisions using numeric fixtures; never run a live hook or model."""
 
 import datetime
+import json
+import tempfile
 from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
-from fm_context_relay import config, session  # noqa: E402
+from fm_context_relay import admission, config, session  # noqa: E402
 
 NOW = datetime.datetime(2026, 10, 30, 20, 6, 26, tzinfo=datetime.timezone.utc)
 
@@ -113,6 +115,32 @@ class WarningDecisionTests(unittest.TestCase):
         aged["session_started_at"] = "2026-10-29T19:22:24Z"
         self.assertIn("Continue useful work", self.evaluate(aged))
 
+
+    def test_codex_observed_admission_tracks_rollout_owner_and_latest_window(self):
+        with tempfile.TemporaryDirectory(prefix='relay-window-') as temporary:
+            path = Path(temporary)/'rollout.jsonl'
+            rows = [json.loads(line) for line in (Path(__file__).parent/'fixtures/codex-tui-paginated.jsonl').read_text().splitlines()]
+            rows[1]['payload']["model"] = 'gpt-unlisted'
+            path.write_text("".join(json.dumps(row)+'\n' for row in rows))
+            record = session.new_record("codex", 'fixture-session', NOW)
+            record.update(owner_pid='123', transcript_path=str(path))
+            session.refresh_measurement(record, "codex", 5, now=NOW)
+            policy = dict(harness="codex", compactions=4)
+            self.assertTrue(admission.evidence(record, policy)['admitted'])
+            # A new token event without window evidence invalidates the old
+            # capacity, even when the model and counted boundaries stay valid.
+            with path.open('a') as stream:
+                stream.write(json.dumps(dict(type='event_msg', payload=dict(type='token_count',
+                    info=dict(last_token_usage=dict(input_tokens=400001)))))+'\n')
+            session.refresh_measurement(record, "codex", 5, now=NOW)
+            self.assertEqual(admission.evidence(record, policy)['reason_code'], 'observed_window_missing')
+            path.write_text("".join(json.dumps(row)+'\n' for row in rows))
+            record["scan"] = None
+            record['owner_pid'] = '456'
+            session.refresh_measurement(record, "codex", 5, now=NOW)
+            self.assertTrue(admission.evidence(record, policy)['admitted'])
+            record['session_id'] = 'other-owner'
+            self.assertEqual(admission.evidence(record, policy)['reason_code'], 'observed_window_stale')
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,8 +18,8 @@ assert_eq "$RC" 0 "missing settings file is valid (defaults)"
 OUT=$("$CLI" --home "$H" show --json); RC=$?
 assert_eq "$RC" 0 "show works without a settings file"
 assert_eq "$(jout 'd["status"] + "/" + d["top"]["compactions_before_relay"]["source"]')" "missing/default" "show reports default origin"
-assert_eq "$(jout '[m["model"] for m in d["models"]]')" '["claude-opus-5-5", "gpt-6.1-sol"]' "defaults carry the two captain-chosen models"
-assert_eq "$(jout '[(m["request_tokens"], m["stop_new_work_tokens"]) for m in d["models"]]')" '[[250000, 400000], [200000, 310000]]' "defaults carry 250k/400k and 200k/310k"
+assert_eq "$(jout '[m["model"] for m in d["models"]]')" '["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6.1-sol"]' "defaults carry optional model profiles"
+assert_eq "$(jout '[(m["request_tokens"], m["stop_new_work_tokens"]) for m in d["models"]]')" '[[250000, 400000], [null, null], [200000, 310000]]' "defaults preserve pressure thresholds without inventing Sonnet thresholds"
 assert_eq "$(jout 'd["unknown_model"]["known"], d["unknown_model"]["trigger"], d["unknown_model"]["request_tokens"]')" '[false, "compactions", null]' "unknown models: default trigger, no token thresholds"
 assert_eq "$(jout 'd["phone_notifications"]')" false "phase 1 never notifies the phone"
 

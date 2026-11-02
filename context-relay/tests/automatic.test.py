@@ -3,14 +3,18 @@
 import concurrent.futures
 import datetime
 import json
+import copy
+import shutil
 from pathlib import Path
 import sys
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'lib'))
-from fm_context_relay import automatic as auto, common, pane_close
+from fm_context_relay import automatic as auto, common, pane_close, measure, admission, safety_manifest
 
 
 class AutomaticSafety(unittest.TestCase):
@@ -27,6 +31,16 @@ class AutomaticSafety(unittest.TestCase):
                            relay=dict(pending=True, pending_since=common.iso(self.now),
                                       policy=dict(harness='codex', compactions=4, min_context_percent=None),
                                       matched_evidence=dict(compactions=4, counting='verified')))
+        self.record.update(model='gpt-unlisted', owner_pid='123', transcript_path='/fake/rollout',
+            window_tokens_observed=475000,
+            window_observation=dict(harness='codex', session_id='native-one', owner_pid='123',
+                model='gpt-unlisted', window_tokens=475000, source='codex-token-count',
+                transcript_path='/fake/rollout', dev=1, ino=1, line=10, at=common.iso(self.now)))
+        self.record['scan'].update(session_id='native-one', path='/fake/rollout', dev=1, ino=1,
+            window_line=10, window_tokens=475000, source='cli', codex_invalid=False,
+            compaction_ids=['w1','w2','w3','w4'], codex_tui=dict(windows=dict(w1=[],w2=[],w3=[],w4=[])))
+        counting, signal = measure.compaction_counting('codex', self.record['scan'])
+        self.record['compactions'] = dict(count=4, counting=counting, signal=signal)
         self.notes = dict(useful_work=['Completed the durable requested operation'],
                           automatic_safe_point=dict(decisions_saved=True, own_operations_reconciled=True,
                               captain_call_in_progress=False, landing_in_progress=False,
@@ -49,6 +63,16 @@ class AutomaticSafety(unittest.TestCase):
 
     def reserve(self):
         return auto.reserve(self.paths, self.record, self.notes, self.operational, self.now)
+
+    def test_authority_rereads_after_configuration_check(self):
+        loaded = SimpleNamespace(status='ok', settings=SimpleNamespace(value=lambda key: 'auto'))
+        with mock.patch.object(auto, 'read_authority', side_effect=[{'id': 'old'}, {'id': 'new'}]), \
+             mock.patch.object(auto.config, 'load', return_value=loaded):
+            self.assertEqual(auto.authority(self.paths)['id'], 'new')
+
+    def test_absolute_codex_policy_does_not_warn_about_required_counting(self):
+        errors, warnings = auto.config.validate(dict(models={}, relay_policy={'codex': {'min_context_tokens': 400000}}))
+        self.assertEqual((errors, warnings), ([], []))
 
     def test_defaults_stay_off(self):
         self.assertEqual(auto.view(self.paths)['mode'], 'warn')
@@ -163,16 +187,6 @@ class AutomaticSafety(unittest.TestCase):
         status.write_text('paused [key='+key+'] [at='+str(int(self.now.timestamp()))+']: safe point reached\n')
         self.assertEqual(self.reserve()['state'], 'reserved')
 
-    def test_unknown_model_or_incomplete_measurement_cannot_rotate(self):
-        self.enabled()
-        self.request()
-        self.record['effective']['known_model'] = False
-        with self.assertRaisesRegex(pane_close.Preserve, 'model'):
-            self.reserve()
-        self.record['effective']['known_model'] = True
-        self.record['scan']['caught_up'] = False
-        with self.assertRaisesRegex(pane_close.Preserve, 'measurement'):
-            self.reserve()
 
     def test_core_change_invalidates_standing_authority(self):
         self.enabled()
@@ -213,6 +227,8 @@ class AutomaticSafety(unittest.TestCase):
     def next_request(self, seconds=1900):
         self.now += datetime.timedelta(seconds=seconds)
         self.record['session_id'] += '-new'
+        self.record['scan']['session_id'] = self.record['session_id']
+        self.record['window_observation']['session_id'] = self.record['session_id']
         self.record['relay']['pending_since'] = common.iso(self.now)
         self.request()
 
@@ -273,6 +289,130 @@ class AutomaticSafety(unittest.TestCase):
         self.assertFalse(view['automatic']['auto_enabled'])
         self.assertEqual((self.home/'config/umbrales-relevo').read_bytes(), before)
 
+
+    def test_unlisted_model_with_observation_and_incomplete_measurement(self):
+        self.enabled()
+        self.request()
+        self.record['effective']['known_model'] = False
+        self.assertTrue(auto.safe_point(self.paths, self.record, self.notes, self.operational, self.now)['enabled'])
+        self.record['window_observation'] = {}
+        with self.assertRaisesRegex(pane_close.Preserve, 'observed_window_missing'):
+            self.reserve()
+        self.record['scan']['caught_up'] = False
+        with self.assertRaisesRegex(pane_close.Preserve, 'measurement_incomplete'):
+            self.reserve()
+
+    def test_observation_and_counting_admission_matrix(self):
+        self.record['effective']['known_model'] = False
+        policy = self.record['relay']['policy']
+        self.assertTrue(admission.evidence(self.record, policy)['admitted'])
+        for field, value in [('session_id', 'other'), ('owner_pid', '456'),
+                             ('model', 'other-model'), ('source', 'configured'),
+                             ('window_tokens', 0), ('at', None), ('ino', 999)]:
+            record = copy.deepcopy(self.record)
+            record['window_observation'][field] = value
+            with self.subTest(field=field):
+                self.assertFalse(admission.evidence(record, policy)['admitted'])
+        record = copy.deepcopy(self.record)
+        record['model_changed_at'] = common.iso(self.now+datetime.timedelta(seconds=1))
+        self.assertEqual(admission.evidence(record, policy)['reason_code'], 'observed_window_stale')
+        record['model_changed_at'] = None
+        record['scan']['codex_invalid'] = True
+        self.assertEqual(admission.evidence(record, policy)['reason_code'], 'compaction_counting_unverified')
+        absolute = dict(harness='codex', min_context_tokens=400000)
+        self.assertTrue(admission.evidence(record, absolute)['admitted'])
+        self.assertEqual(admission.evidence(record, None)['reason_code'], 'policy_unresolved')
+        record['window_observation'] = {}
+        self.assertEqual(admission.evidence(record, absolute)['reason_code'], 'observed_window_missing')
+
+    def test_claude_unknown_model_uses_boundary_signal(self):
+        record = copy.deepcopy(self.record)
+        record.update(harness='claude', model='claude-new')
+        record['window_observation'].update(harness='claude', model='claude-new', source='claude-statusline')
+        record['compactions']['signal'] = 'compact_boundary'
+        self.assertTrue(admission.evidence(record, dict(harness='claude', compactions=4))['admitted'])
+        record['compactions']['signal'] = 'PreCompact'
+        self.assertEqual(admission.evidence(record, dict(harness='claude', compactions=4))['reason_code'],
+                         'compaction_counting_unverified')
+
+    def test_manifest_coverage_rejects_an_unclassified_module(self):
+        root = Path(__file__).resolve().parents[1]
+        self.assertEqual(safety_manifest.uncovered(root), [])
+        clone = Path(self.tmp.name)/'extension'
+        shutil.copytree(root, clone, ignore=shutil.ignore_patterns('__pycache__'))
+        (clone/'lib/fm_context_relay/new_retire.py').write_text('# new critical module\n')
+        with self.assertRaisesRegex(ValueError, 'new_retire.py'):
+            safety_manifest.fingerprint(self.paths, clone)
+
+    def test_binding_mutation_matrix_in_disposable_runtime(self):
+        root = Path(__file__).resolve().parents[1]
+        clone = Path(self.tmp.name)/'extension'
+        shutil.copytree(root, clone, ignore=shutil.ignore_patterns('__pycache__'))
+        original = safety_manifest.fingerprint(self.paths, clone)
+        for relative in safety_manifest.EXTENSION_FILES:
+            target = clone/relative
+            before = target.read_bytes()
+            target.write_bytes(before+b'\n')
+            with self.subTest(relative=relative):
+                changes = safety_manifest.changed(original, safety_manifest.fingerprint(self.paths, clone))
+                self.assertIn('extension/'+relative, changes)
+            target.write_bytes(before)
+        for relative in safety_manifest.CORE_FILES:
+            target = self.home/relative
+            target.parent.mkdir(exist_ok=True)
+            target.write_text('# changed dependency\n')
+            with self.subTest(relative=relative):
+                self.assertIn('firstmate/'+relative,
+                              safety_manifest.changed(original, safety_manifest.fingerprint(self.paths, clone)))
+            target.unlink()
+        for relative in ('README.md', 'compatibility.json', 'model-catalog.json',
+                         'tests/automatic.test.py', 'context-relay.example.json'):
+            target = clone/relative
+            before = target.read_bytes()
+            target.write_bytes(before+b'\n')
+            with self.subTest(relative=relative):
+                self.assertEqual(safety_manifest.fingerprint(self.paths, clone), original)
+            target.write_bytes(before)
+        newer = dict(original, protocol_version=original['protocol_version']+1)
+        self.assertIn('protocol_version', safety_manifest.changed(original, newer))
+        self.assertIn('legacy', safety_manifest.changed({}, original)[0])
+
+    def test_status_and_notice_name_changed_dependency(self):
+        self.enabled()
+        (self.home/'bin').mkdir()
+        (self.home/'bin/fm-lock-release.py').write_text('# replacement\n')
+        result = auto.view(self.paths)
+        self.assertFalse(result['auto_enabled'])
+        self.assertIn('firstmate/bin/fm-lock-release.py', result['reason'])
+        self.assertIn('firstmate/bin/fm-lock-release.py', self.request())
+        self.assertIsNone(self.request())
+
+    def test_core_revision_binding_is_preserved_for_transitive_changes(self):
+        subprocess.run(['git', '-C', str(self.home), 'init', '-q'], check=True)
+        dependency = self.home/'core-dependency.txt'
+        def commit(text):
+            dependency.write_text(text)
+            subprocess.run(['git', '-C', str(self.home), 'add', dependency.name], check=True)
+            subprocess.run(['git', '-C', str(self.home), '-c', 'user.name=Fixture',
+                            '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'], check=True)
+        commit('v1')
+        self.enabled()
+        self.assertTrue(auto.view(self.paths)['auto_enabled'])
+        commit('v2')
+        result = auto.view(self.paths)
+        self.assertFalse(result['auto_enabled'])
+        self.assertIn('firstmate_revision', result['reason'])
+        self.assertIn('firstmate_revision', self.request())
+
+    def test_legacy_authorization_is_not_migrated(self):
+        self.enabled()
+        target = auto.locations(self.paths)['control']
+        value = common.read_json(str(target))
+        value['code_fingerprint'] = {'firstmate_revision': None}
+        common.atomic_write_json(str(target), value)
+        self.assertFalse(auto.view(self.paths)['auto_enabled'])
+        self.assertIn('binding_format', auto.view(self.paths)['reason'])
+        self.assertEqual(common.read_json(str(target)), value)
 
 if __name__ == '__main__':
     unittest.main()

@@ -7,7 +7,10 @@ Firstmate remains usable without these extensions.
 Context relay measures context pressure, warns, supports assisted handover, and
 can relay automatically **only after explicit authorization**. Automatic relay is
 **OFF by default** (`relay_mode=warn`), with a durable authorization record and an
-immediate kill switch. Planning defaults to `native`; Spec Kit can be selected per
+immediate kill switch. [Observed measurement admission](context-relay/SAFETY.md)
+does not require a model catalog entry and does not establish new native acceptance.
+Pure extension data updates preserve authority; executable/protocol changes and
+Firstmate revision changes still invalidate it. Planning defaults to `native`; Spec Kit can be selected per
 installation, Firstmate home, project, or task. It ships a restricted offline core,
 not the complete upstream CLI.
 

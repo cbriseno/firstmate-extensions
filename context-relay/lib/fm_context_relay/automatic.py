@@ -49,21 +49,28 @@ show --limit N (1..100, default 20) returns settings JSON. show --json includes
 threshold provenance. status [--language en|es] [--json] is read-only. English is
 the default summary language. Journal: data/context-relay/automatic-events.jsonl;
 a journal entry does not prove external notification delivery.
-Exit: 0 success/query, 1 preserved refusal, 2 usage."""
+Exit: 0 success/query, 1 preserved refusal, 2 usage.
+Pure catalog data, docs, tests and examples are outside the executable binding.
+The Firstmate HEAD and its existing primitive hashes remain bound unchanged.
+Legacy authority is rejected, never migrated; each new authority needs actual words.
+"""
+
+
+def bounded_notice(paths, record, reason):
+    key = common.session_key(record.get('harness'), record.get('session_id'))
+    require(key is not None, 'invalid notice identity')
+    target = Path(paths.state_dir)/'admission-notices'/(key+'.json')
+    digest = common.sha256_bytes(common.dump_json([request_key(record), reason]))
+    with common.FileLock(str(locations(paths)['lock'])):
+        if (common.read_json(str(target)) or {}).get('key') == digest:
+            return None
+        write(target, dict(key=digest, reason=reason))
+    return 'Automatic relay held: '+reason+'. Preserve the session.'
 
 
 def code_fingerprint(paths):
-    root = Path(__file__).resolve().parent
-    files = list(root.glob('*.py'))
-    files += list((root.parents[1]/'bin').glob('fm-context-relay*'))
-    files += [Path(paths.home)/'bin'/name for name in
-              ('fm-session-start.sh', 'fm-sessionstart-run.sh', 'fm-lock.sh', 'fm-lock-release.sh', 'fm-lock-release.py',
-               'fm-session-lock-lib.sh', 'fm-primary-scope-lib.sh')]
-    result = {str(p): common.sha256_bytes(p.read_bytes()) if p.exists() else None for p in sorted(files)}
-    head = subprocess.run(['git', '-C', paths.home, 'rev-parse', 'HEAD'],
-                          capture_output=True, text=True, timeout=3)
-    result['firstmate_revision'] = head.stdout.strip() if head.returncode == 0 else None
-    return result
+    from . import safety_manifest
+    return safety_manifest.fingerprint(paths)
 
 
 def locations(paths):
@@ -115,8 +122,14 @@ def read_authority(paths):
             and value.get('home') == paths.home and value.get('enabled') is True
             and isinstance(value.get('captain_words'), str) and value['captain_words'].strip()
             and value.get('id'), 'current durable operator authorization missing')
-    require(value.get('code_fingerprint') == code_fingerprint(paths),
-            'code/dependencies changed; preserve warn and verify before authorizing again')
+    from . import safety_manifest
+    try:
+        current = code_fingerprint(paths)
+    except (OSError, ValueError) as exc:
+        raise pane_close.Preserve('safety_manifest_unavailable: '+str(exc)) from exc
+    changes = safety_manifest.changed(value.get('code_fingerprint'), current)
+    require(not changes, 'code/dependencies changed: '+', '.join(changes)+
+            '; preserve warn and verify before authorizing again')
     require(value.get('kill_generation') == common.read_json(str(locations(paths)['kill'])),
             'kill switch newer than this authorization')
     value['limits'] = limits(value.get('limits', {}))
@@ -125,10 +138,11 @@ def read_authority(paths):
 
 def authority(paths):
     """Read the actual file every time. Cached auto settings never authorize."""
+    read_authority(paths)  # expose the precise invalidation before mode fallback
     loaded = config.load(paths)
     require(loaded.status == 'ok' and loaded.settings.value('relay_mode') == 'auto',
             'automatic mode disabled or configuration invalid')
-    return read_authority(paths)
+    return read_authority(paths)  # do not reuse authority across a config/kill recheck
 
 
 def _config_bytes(paths):
@@ -234,10 +248,17 @@ def notice(paths, record, now=None):
     now = now or common.utcnow()
     try:
         auth = authority(paths)
-    except pane_close.Preserve:
+    except pane_close.Preserve as exc:
+        saved = common.read_json(str(locations(paths)['control'])) or {}
+        if saved.get('enabled') is True and saved.get('home') == paths.home:
+            return bounded_notice(paths, record, str(exc))
         return None
     if not (record.get('relay') or {}).get('pending'):
         return None
+    from . import admission, session
+    proof = admission.evidence(record, session.relay_policy(config.load(paths).settings, record.get('harness')))
+    if not proof['admitted']:
+        return bounded_notice(paths, record, admission.describe(proof))
     with common.FileLock(str(locations(paths)['lock'])):
         ledger = read_ledger(paths)
         key = request_key(record)
@@ -273,7 +294,7 @@ def notice(paths, record, now=None):
             argv += ['--herdr-session', selected_session]
         if runtime.get('herdr_lab_helper'):
             argv += ['--herdr-lab-helper', runtime['herdr_lab_helper']]
-        return ('Automatic relay authorized: trigger reached. Save decisions and pending operations, '
+        return ('Automatic relay authorized: '+admission.describe(proof)+'. Trigger reached. Save decisions and pending operations, '
                 'finish or durably pause critical worker operations, operator calls and landings. '
                 'Worker pauses must use the key auto-relay-'+key[:16]+'. '
                 'Do not interrupt operations. The safe-point deadline is '+common.iso(deadline)+
@@ -298,8 +319,9 @@ def safe_point(paths, record, notes, operational, now=None):
     now = now or common.utcnow()
     from . import session
     loaded = config.load(paths)
-    require((record.get('effective') or {}).get('known_model') is True,
-            'model without verified settings; warning only')
+    from . import admission
+    proof = admission.evidence(record, session.relay_policy(loaded.settings, record.get('harness')))
+    require(proof['admitted'], admission.describe(proof))
     require((record.get('scan') or {}).get('caught_up') is True,
             'incomplete measurement; warning only')
     require((record.get('relay') or {}).get('policy') == session.relay_policy(loaded.settings, record.get('harness')),
@@ -449,6 +471,9 @@ def status_summary(result, language):
         if attempts else ('ninguno registrado' if spanish else 'none recorded')))
     if result.get('reason'):
         lines.append(('Motivo: ' if spanish else 'Reason: ') + result['reason'])
+    from . import admission
+    for item in result.get('admissions', []):
+        lines.append('%s: %s; known_model=%s' % (item['harness'], admission.describe(item), item['known_model']))
     for error in result['thresholds']['errors']:
         lines.append(('Error de configuración: ' if spanish else 'Configuration error: ') + error)
     return '\n'.join(lines)
@@ -464,6 +489,15 @@ def run(args, paths):
             if args.auto_action == 'status':
                 from . import thresholds
                 result['thresholds'] = thresholds.machine_view(paths)
+                from . import admission, session
+                loaded = config.load(paths)
+                records = sorted(Path(paths.sessions).glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True)
+                result['admissions'] = []
+                for path in records[:args.limit]:
+                    record = common.read_json(str(path)) or {}
+                    proof = admission.evidence(record, session.relay_policy(loaded.settings, record.get('harness')))
+                    result['admissions'].append(dict(proof, harness=record.get('harness'),
+                        known_model=loaded.settings.for_model(record.get('model'))['known']))
                 auth = result.get('authority') or {}
                 result['limits'] = auth.get('limits', DEFAULT_LIMITS) if result['auto_enabled'] else DEFAULT_LIMITS
                 result['summary'] = status_summary(result, args.language)

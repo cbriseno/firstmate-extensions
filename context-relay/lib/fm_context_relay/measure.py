@@ -35,6 +35,8 @@ def new_scan():
         "zero_line": 0,
         "model": None,
         "window_tokens": None,
+        "window_line": None,
+        "session_id": None,
         "originator": None,
         "source": None,
         "codex_tui": None,
@@ -185,6 +187,7 @@ def _codex_row(state, raw, line_no):
     kind = obj.get("type")
     payload = obj.get("payload") if isinstance(obj.get("payload"), dict) else {}
     if kind == "session_meta":
+        state["session_id"] = payload.get("id")
         state["originator"] = payload.get("originator")
         state["source"] = payload.get("source")
         window = payload.get("context_window")
@@ -239,8 +242,8 @@ def _codex_row(state, raw, line_no):
         if not isinstance(info, dict):
             return
         window = info.get("model_context_window")
-        if _int(window):
-            state["window_tokens"] = window
+        state["window_tokens"] = _int(window) or None
+        state["window_line"] = line_no if _int(window) else None
         last = info.get("last_token_usage")
         tokens = _int(last.get("input_tokens")) if isinstance(last, dict) else 0
         if tokens <= 0:

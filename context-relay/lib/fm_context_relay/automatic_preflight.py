@@ -57,7 +57,7 @@ def verify(args, paths, directory, attempt):
             'new operator input; safe point must be prepared again')
     notes = assisted.load(directory/'notes.json')
     current = assisted.capture(home, notes['references'])
-    authority = automatic.safe_point(paths, record, notes, current)
+    authority = automatic.safe_point(paths, latest, notes, current)
     proof = dict(schema='fm-auto-preflight.v1', at=common.iso(), attempt=attempt['id'],
                  checkpoint_sha256=attempt['checkpoint_sha256'], owner=owner,
                  authorization=authority['id'], destination=target,

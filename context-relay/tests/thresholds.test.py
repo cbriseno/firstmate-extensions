@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -25,6 +26,8 @@ def resolve_core():
 
 CORE = resolve_core()
 CLI = EXT/'bin/fm-context-relay'
+sys.path.insert(0, str(EXT/'lib'))
+from fm_context_relay import automatic, common, pane_close
 
 
 class ThresholdTests(unittest.TestCase):
@@ -349,6 +352,65 @@ class ThresholdTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stderr)['hookSpecificOutput']['permissionDecision'], 'deny')
         self.assertFalse((self.home/'forbidden').exists())
 
+
+    def hook_with_window(self, model, sid):
+        payload = dict(session_id=sid, transcript_path=str(self.transcript), cwd=str(self.home))
+        status = dict(payload, model={'id': model}, context_window={'context_window_size': 1000000})
+        # Both events come from one owning fake process, as in the native
+        # harness; separate fake invocations intentionally have different PIDs.
+        result = subprocess.run([str(self.fakebin/'claude'), 'bash', '-c',
+            'printf "%s" "$1" | "$3" --home "$4" claude StatusLine; '
+            'printf "%s" "$2" | "$3" --home "$4" claude UserPromptSubmit',
+            'fixture', json.dumps(status), json.dumps(payload), str(EXT/'bin/fm-context-relay-hook'), str(self.home)],
+            env=self.env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+        return result.stdout
+
+    def test_model_catalog_and_automatic_admission_without_starting_relay(self):
+        # Exercise the CLI and hook, then the read-only admission interface.
+        # Synthetic provider data proves catalog behavior, not native acceptance.
+        self.set_spec('claude: umbral:400000')
+        self.cli('auto', 'authorize', '--captain-words', 'isolated fixture authorization',
+                 '--reason', 'catalog admission regression', '--min-work-seconds', '1')
+        for model, known in (('claude-sonnet-5-5', True), ('claude-unlisted-model', False)):
+            with self.subTest(model=model):
+                self.native(count=1, tokens=400000)
+                rows = [json.loads(line) for line in self.transcript.read_text().splitlines()]
+                for row in rows:
+                    if row.get('type') == 'assistant':
+                        row['message']['model'] = model
+                self.transcript.write_text(''.join(json.dumps(row)+'\n' for row in rows))
+                out = self.hook(sid=model)
+                record = self.record(sid=model)
+                self.assertEqual(record['effective']['known_model'], known)
+                self.assertEqual(record['compactions']['counting'], 'verified')
+                self.assertEqual(record['relay']['policy']['min_context_tokens'], 400000)
+                self.assertTrue(record['relay']['pending'])
+                self.assertEqual(record['relay']['fired_triggers'], ['umbral'])
+                paths = common.Paths(str(self.home))
+                notes = dict(useful_work=['Completed the isolated fixture operation'],
+                    automatic_safe_point=dict(decisions_saved=True, own_operations_reconciled=True,
+                        captain_call_in_progress=False, landing_in_progress=False,
+                        critical_operation_in_progress=False))
+                operational = dict(snapshot=dict(schema='fm-fleet-snapshot.v1', fm_home=str(self.home),
+                    main_inventory=dict(valid=True), tasks=[], backlog=dict(records=[])))
+                # A configured catalog window is never enough for automatic
+                # admission, including a known model. Observe the owner first.
+                with self.assertRaisesRegex(pane_close.Preserve, 'observed_window_missing'):
+                    automatic.safe_point(paths, record, notes, operational)
+                self.hook_with_window(model, model)
+                record = self.record(sid=model)
+                self.assertEqual(record['admission']['evidence'], 'observed')
+                self.assertTrue(automatic.safe_point(paths, record, notes, operational)['enabled'])
+                if known:
+                    self.assertNotIn('unknown-model:', str(record['pending']))
+                    self.assertEqual(record['effective']['window_tokens'], 1000000)
+                    self.assertIsNone(record['effective']['request_tokens'])
+                    self.assertIsNone(record['effective']['stop_new_work_tokens'])
+                else:
+                    self.assertIn('known_model=false', out)
+        self.assertEqual(automatic.read_ledger(paths)['attempts'], [])
+        self.assertFalse((self.home/'state/context-relay/handoffs').exists())
 
 if __name__ == '__main__':
     unittest.main()

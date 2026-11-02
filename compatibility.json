@@ -64,7 +64,7 @@
     },
     "codex_tested": "0.166.0",
     "claude_code_tested": "2.1.316",
-    "evidence": "Prior Linux native acceptance; not rerun during distribution export",
+    "evidence": "Prior Linux native acceptance; observed admission and binding changes verified by isolated synthetic regressions, without fresh native acceptance or activation",
     "unsupported": [
       "shared Codex daemon",
       "Claude production 1M sessions",
@@ -73,6 +73,26 @@
     "missing_firstmate": "refuse dependent operations with a diagnostic",
     "missing_herdr": "relay unavailable; no alternate terminal launch",
     "macos": "unavailable: POSIX ps cannot verify process identity and terminal input safety; code process_evidence_unavailable",
-    "macos_design_note": "The macOS-provided lsof is a possible future approach; real Mac acceptance is required before enabling relay."
+    "macos_design_note": "The macOS-provided lsof is a possible future approach; real Mac acceptance is required before enabling relay.",
+    "observed_admission": {
+      "basis": "current harness-observed window; model catalog membership is optional",
+      "known_model": "effective optional model-table membership only",
+      "evidence": "observed",
+      "window_sources": [
+        "claude-statusline",
+        "codex-token-count"
+      ],
+      "counting": "required for every counting-based automatic policy; existing Claude compact_boundary and verified Codex rollout contracts unchanged",
+      "verification": "isolated synthetic regressions only; no new native relay acceptance or installed activation",
+      "contract": "SAFETY.md"
+    },
+    "authorization_binding": {
+      "manifest": "lib/fm_context_relay/safety_manifest.py",
+      "protocol_version": 1,
+      "extension": "all executable modules, wrappers and successor template; pure data excluded",
+      "firstmate": "existing Git HEAD and seven primitive hashes preserved",
+      "legacy_authority": "refused, never migrated",
+      "verification": "isolated mutation, coverage, and core revision regressions"
+    }
   }
 }

@@ -100,7 +100,7 @@ def _excluded(harness, event, payload):
     if harness == "codex":
         if payload.get("agent_type"):
             return True
-        if config.normalize_model(payload.get("model")).startswith("codex-auto-review"):
+        if config.normalize_model(payload.get('model')).startswith("codex-auto-review"):
             return True
     if event == "Stop" and payload.get("stop_hook_active") is True:
         return True  # a continuation turn: do nothing at all
@@ -126,13 +126,20 @@ def handle(paths, harness, event, raw):
     if bound_session and bound_session.decode("utf-8", "replace").strip() != session_id:
         return None
     now = common.utcnow()
-    window_path = os.path.join(paths.state_dir, 'windows', key + '.json')
-    if event == 'StatusLine':
-        window = (payload.get('context_window') or {}).get('context_window_size')
+    window_path = os.path.join(paths.state_dir, 'windows', key + ".json")
+    if event == "StatusLine":
+        if harness != "claude":
+            return None
+        context = payload.get('context_window')
+        window = context.get('context_window_size') if isinstance(context, dict) else None
         model = payload.get('model') or {}
-        if isinstance(window, int) and not isinstance(window, bool) and window > 0 and isinstance(model, dict):
+        if isinstance(window, int) and not isinstance(window, bool) and window > 0 and isinstance(model, dict) and config.normalize_model(model.get('id')):
             common.atomic_write_json(window_path, {'model': config.normalize_model(model.get('id')),
-                'window_tokens': window, 'at': common.iso(now), 'source': 'claude-statusline'})
+                'harness': harness, "session_id": session_id,
+                "owner_pid": os.environ.get("FM_CONTEXT_RELAY_OWNER_PID"),
+                'window_tokens': window, 'at': now.isoformat(), "source": 'claude-statusline'})
+        else:
+            common.atomic_write_json(window_path, {})
         return None
     loaded = config.load(paths, remember=True)
     cli = os.environ.get("FM_CONTEXT_RELAY_CLI") or "fm-context-relay"
@@ -147,9 +154,9 @@ def handle(paths, harness, event, raw):
         record = session.load_record(paths, key, harness, session_id, now)
         record["updated_at"] = common.iso(now)
         record["last_event"] = event
-        if event == 'UserPromptSubmit' and str(payload.get('prompt', '')).strip() not in ('/exit', '/quit'):
+        if event == "UserPromptSubmit" and str(payload.get('prompt', "")).strip() not in ('/exit', '/quit'):
             record['last_user_prompt_nonce'] = os.urandom(16).hex()
-        if event == 'Stop':
+        if event == "Stop":
             record['last_stop_nonce'] = os.urandom(16).hex()
         owner = os.environ.get("FM_CONTEXT_RELAY_OWNER_PID")
         if owner:
@@ -157,13 +164,15 @@ def handle(paths, harness, event, raw):
         transcript = payload.get("transcript_path")
         if isinstance(transcript, str) and transcript:
             record["transcript_path"] = transcript
-        payload_model = payload.get("model")
-        if isinstance(payload_model, str) and payload_model and not record.get("model"):
-            record["model"] = payload_model
+        payload_model = payload.get('model')
+        if isinstance(payload_model, str) and payload_model and not record.get('model'):
+            record['model'] = payload_model
             if payload_model not in record["models_seen"]:
                 record["models_seen"].append(payload_model)
         new_compactions = session.refresh_measurement(record, harness, scan_budget(event), compaction_event, now)
-        if harness == 'claude':
+        if harness == "claude":
+            record.pop('window_tokens_observed', None)
+            record.pop('window_observation', None)
             observed = common.read_json(window_path) or {}
             if observed.get('model') and observed['model'] == config.normalize_model(record.get('model')):
                 record['window_tokens_observed'] = observed['window_tokens']
@@ -192,7 +201,7 @@ def handle(paths, harness, event, raw):
     if event in INJECT_EVENTS[harness]:
         auto_text = automatic.notice(paths, record, now)
         if auto_text:
-            text = (text+'\n\n' if text else '')+auto_text
+            text = (text+'\n\n' if text else "")+auto_text
     if not text:
         return None
     return json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": text}}, ensure_ascii=False)

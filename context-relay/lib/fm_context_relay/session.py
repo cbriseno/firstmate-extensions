@@ -61,6 +61,7 @@ def refresh_measurement(record, harness, budget_seconds, compaction_event=None, 
     until a newer call appears, even if the boundary row is not written yet.
     Returns the number of newly counted compactions.
     """
+    now = now or common.utcnow()
     path = record.get("transcript_path")
     if not path:
         record["resident"] = {"status": "no_data", "reason": "transcript_missing", "tokens": None}
@@ -83,10 +84,20 @@ def refresh_measurement(record, harness, budget_seconds, compaction_event=None, 
         "counting": summary["compactions"]["counting"],
         "signal": summary["compactions"]["signal"],
     }
-    if summary["window_tokens"]:
-        record["window_tokens_observed"] = summary["window_tokens"]
+    if harness == "codex":
+        record.pop("window_tokens_observed", None)
+        record.pop("window_observation", None)
+        if summary["window_tokens"] and scan.get("caught_up") and not scan.get("missing"):
+            record["window_tokens_observed"] = summary["window_tokens"]
+            record["window_observation"] = dict(
+                harness=harness, session_id=scan.get("session_id"), owner_pid=record.get("owner_pid"),
+                model=summary["model"], window_tokens=summary["window_tokens"],
+                source="codex-token-count", line=scan.get("window_line"),
+                transcript_path=path, dev=scan.get("dev"), ino=scan.get("ino"), at=now.isoformat())
     model = scan.get("model")
     if model and model != record.get("model"):
+        if record.get("model"):
+            record["model_changed_at"] = now.isoformat()
         if not summary["window_tokens"]:
             record.pop("window_tokens_observed", None)
         record["model"] = model
@@ -158,6 +169,8 @@ def evaluate(record, load_result, harness, now, cli, new_compactions=0):
         "settings": load_result.using,
         "age_hours": round(age, 2) if age is not None else None,
     }
+    from . import admission
+    record["admission"] = admission.evidence(record, relay_policy(settings, harness))
     evaluate_relay_policy(record, settings, harness, now)
     if settings.value("relay_mode") == "assisted":
         _add_pending(record, "relay-mode:assisted", _relay_mode_text(record))
@@ -180,8 +193,12 @@ def evaluate(record, load_result, harness, now, cli, new_compactions=0):
         _add_pending(
             record,
             "unknown-model:%s" % eff["model"],
-            "Model %s has no settings in config/context-relay.json: warning only (unknown_model=warn_only), trigger %s and no token thresholds. Propose additions to the operator with `%s show` evidence and write only after explicit approval (`%s set models.%s.request_tokens <n> --reason ... --approved ...`)."
-            % (eff["model"], trigger, cli, cli, eff["model"]),
+            "Model %s has no model pressure overrides (known_model=false). "
+            "Automatic admission uses observed evidence: %s; window=%s, source=%s, counting=%s. "
+            "Overrides are optional and editing them requires the usual approval."
+            % (eff["model"], record["admission"]["reason_code"],
+               record["admission"]["window_tokens"], record["admission"]["window_source"],
+               record["admission"]["counting_signal"]),
         )
     if fallback and eff["request_tokens"]:
         _add_pending(
@@ -347,7 +364,7 @@ def _policy_condition(policy):
 
 
 def _relay_mode_text(record):
-    if (record.get('effective') or {}).get('relay_mode') == 'auto':
+    if (record.get("effective") or {}).get("relay_mode") == 'auto':
         return ('Auto mode with durable authority: save decisions and reach the safe point. '
                 'Automatic entry uses the same preparation and durable confirmation, without another operator confirmation; '
                 'respect the automatic notice and immediate kill switch.')
@@ -375,6 +392,8 @@ def _policy_current_text(record):
         capacity = "window %s (%s)" % (common.format_tokens(relay["window_tokens"]), relay["window_source"])
         if relay["window_source"] == "observed" and resident.get("status") == "ok":
             capacity += ", %.1f%% of input/window" % (100.0 * resident["tokens"] / relay["window_tokens"])
+    proof = record.get("admission") or {}
+    capacity += "; admission %s (%s), signal %s" % (proof.get("evidence"), proof.get("reason_code"), (record.get("compactions") or {}).get("signal"))
     action = "Finish or durably pause current tasks to reach the safe point." if relay["pending"] else "Continue useful work until the predicate is met."
     return (
         "Current relay policy for %s: %s. Count %d/%s (%s), resident context %s, %s; state %s; "

@@ -11,6 +11,7 @@ import json
 import math
 import os
 import re
+from pathlib import Path
 
 from . import common
 
@@ -39,20 +40,7 @@ DEFAULTS = {
     "default_trigger": "compactions",
     "compactions_before_relay": 2,
     "precompact_checkpoint": True,
-    "models": {
-        "claude-opus-5-5": {
-            "trigger": "compactions",
-            "request_tokens": 250000,
-            "stop_new_work_tokens": 400000,
-            "window_tokens": 1000000,
-        },
-        "gpt-6.1-sol": {
-            "trigger": "compactions",
-            "request_tokens": 200000,
-            "stop_new_work_tokens": 310000,
-            "window_tokens": 475000,
-        },
-    },
+    "models": json.loads((Path(__file__).resolve().parents[2] / "model-catalog.json").read_text()),
     "unknown_model": "warn_only",
     "relay_mode": "warn",
     # Opt-in per home through the audited CLI; pressure thresholds above
@@ -120,7 +108,7 @@ def validate(obj):
         errors.append("precompact_checkpoint must be true or false")
     if "unknown_model" in obj and obj["unknown_model"] not in UNKNOWN_MODEL_MODES:
         errors.append("unknown_model must be: %s" % ", ".join(UNKNOWN_MODEL_MODES))
-    command = obj.get('relay_event_command', [])
+    command = obj.get("relay_event_command", [])
     if (not isinstance(command, list) or len(command) > 32
             or any(not isinstance(arg, str) or not arg or '\0' in arg or len(arg) > 4096 for arg in command)
             or command and not os.path.isabs(command[0])):
@@ -129,10 +117,10 @@ def validate(obj):
         mode = obj["relay_mode"]
         if mode not in RELAY_MODES:
             errors.append("relay_mode must be warn, assisted or auto (with durable authority)")
-    if 'notification_adapter' in obj:
-        argv = obj['notification_adapter']
+    if "notification_adapter" in obj:
+        argv = obj["notification_adapter"]
         if (not isinstance(argv, list) or len(argv) > 32
-                or any(not isinstance(a, str) or not a or '\x00' in a for a in argv)
+                or any(not isinstance(a, str) or not a or '\0' in a for a in argv)
                 or (argv and not os.path.isabs(argv[0]))):
             errors.append('notification_adapter must be [] or argv with absolute executable, without shell')
     policies = obj.get("relay_policy", {})
@@ -169,7 +157,7 @@ def validate(obj):
                 percent = policy["min_context_percent"]
                 if not _is_number(percent) or not math.isfinite(percent) or not 0 < percent <= 100:
                     errors.append("%s.min_context_percent must be greater than 0 and at most 100" % where)
-            if harness == "codex":
+            if harness == "codex" and "compactions" in policy:
                 warnings.append("%s: relay requires verified counting; token fallback only reports pressure" % where)
     default_trigger = obj.get("default_trigger", DEFAULTS["default_trigger"])
     models = obj.get("models", DEFAULTS["models"])
@@ -311,14 +299,14 @@ def parse_bytes(data):
 def load(paths, remember=False):
     from . import thresholds
     result = thresholds.overlay(paths, _load(paths, remember), remember)
-    if result.settings.value('relay_mode') == 'auto':
+    if result.settings.value("relay_mode") == "auto":
         from . import automatic, pane_close
         try:
             automatic.read_authority(paths)
         except (pane_close.Preserve, OSError, ValueError) as exc:
-            raw = dict(result.settings.raw, relay_mode='warn')
+            raw = dict(result.settings.raw, relay_mode="warn")
             result.settings = Settings(raw, result.settings.origin)
-            result.status = 'invalid'
+            result.status = "invalid"
             result.errors.append('auto unauthorized: '+str(exc))
     return result
 

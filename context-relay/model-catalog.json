@@ -1,0 +1,18 @@
+{
+  "claude-opus-5-5": {
+    "trigger": "compactions",
+    "request_tokens": 250000,
+    "stop_new_work_tokens": 400000,
+    "window_tokens": 1000000
+  },
+  "claude-sonnet-5-5": {
+    "trigger": "compactions",
+    "window_tokens": 1000000
+  },
+  "gpt-6.1-sol": {
+    "trigger": "compactions",
+    "request_tokens": 200000,
+    "stop_new_work_tokens": 310000,
+    "window_tokens": 475000
+  }
+}
