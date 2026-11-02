@@ -1,5 +1,7 @@
 # Optional planning
 
+For UI integrations, use the [versioned settings contract](settings-contract.md).
+
 Planning is independent of the context relay. It uses scoped Firstmate skills and
 private configuration, without changing Firstmate's tracked files or dispatcher.
 A primary must load and follow `firstmate-planning`; this is semantic routing, not
@@ -171,6 +173,8 @@ for active briefs. Test empty and modified projects plus simultaneous worktrees 
 allowing new tasks onto a new pin. Authored specs and project data are never reverted.
 
 ## Checks and measurement
+
+The settings contract regressions run with `python3 -B planning/tests/settings.test.py`.
 
 Run `python3 -B planning/tests/scopes.test.py`, `python3 -B
 planning/tests/install.test.py` and `python3 -B planning/tests/measure-task.test.py`.

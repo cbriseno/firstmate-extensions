@@ -19,9 +19,14 @@ def brief_mode(path):
     return matches[0], text
 
 
-def resolve(home, project, registry, task=None, brief=None, require_core=False):
+def resolve(home, project, registry, task=None, brief=None, require_core=False, task_id=None):
     key, root = identify(project, registry)
     values, language = layers(home, key)
+    if task_id:
+        from task_preferences import mode_for
+        selected = mode_for(home, root, task_id)
+        if selected != 'inherit':
+            values.insert(0, ('task', selected))
     frozen_text = ''
     if brief:
         frozen, frozen_text = brief_mode(brief)

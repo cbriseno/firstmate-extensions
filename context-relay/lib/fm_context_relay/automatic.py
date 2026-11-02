@@ -5,6 +5,7 @@ accept and of its dispatch barrier. This module never manipulates its lock.
 """
 
 import argparse
+from contextlib import nullcontext
 import datetime
 import json
 import os
@@ -139,7 +140,7 @@ def _config_bytes(paths):
     return data, obj
 
 
-def set_mode(paths, mode, words=None, reason=None, selected_limits=None, runtime=None):
+def set_mode(paths, mode, words=None, reason=None, selected_limits=None, runtime=None, config_locked=False):
     """The explicit authorizer is the only operation that writes enabled=true.
 
     OFF is published first, even if the settings file cannot be repaired. An
@@ -158,14 +159,14 @@ def set_mode(paths, mode, words=None, reason=None, selected_limits=None, runtime
               enabled=False, mode=mode, revoked_id=previous.get('id'), at=common.iso()))
         journal(paths, 'kill-switch', mode=mode, revoked_id=previous.get('id'))
         try:
-            with common.FileLock(paths.config_lock, timeout=0.2):
+            with nullcontext() if config_locked else common.FileLock(paths.config_lock, timeout=0.2):
                 _, obj = _config_bytes(paths)
                 obj['relay_mode'] = mode
                 common.atomic_write_json(paths.config, obj)
         except (pane_close.Preserve, common.LockTimeout):
             return dict(mode=mode, enabled=False, config_preserved=True)
         return dict(mode=mode, enabled=False)
-    with common.FileLock(paths.config_lock, timeout=5):
+    with nullcontext() if config_locked else common.FileLock(paths.config_lock, timeout=5):
         require(isinstance(words, str) and bool(words.strip()) and isinstance(reason, str)
                 and bool(reason.strip()), 'explicit operator words and reason required')
         require(sys.platform == 'linux', 'auto is verified only on Linux')
@@ -455,7 +456,10 @@ def status_summary(result, language):
 
 def run(args, paths):
     try:
-        if args.auto_action in ('show', 'status'):
+        if args.auto_action == 'preflight':
+            from . import settings_preflight
+            result = settings_preflight.view(paths, args.harness, args.codex_home)
+        elif args.auto_action in ('show', 'status'):
             result = view(paths, args.limit)
             if args.auto_action == 'status':
                 from . import thresholds
@@ -485,6 +489,10 @@ def add_parser(sub):
     p = sub.add_parser('auto', help='durable authority, immediate kill switch and settings status', description=HELP,
                        formatter_class=argparse.RawDescriptionHelpFormatter)
     actions = p.add_subparsers(dest='auto_action', required=True)
+    p = actions.add_parser('preflight', help='read-only machine activation eligibility')
+    p.add_argument('--harness', required=True)
+    p.add_argument('--codex-home')
+    p.set_defaults(func=run)
     p = actions.add_parser('show')
     p.add_argument('--limit', type=int, default=20)
     p.set_defaults(func=run)

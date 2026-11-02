@@ -1,6 +1,7 @@
 """Human threshold syntax; translates into relay_policy, never decides eligibility."""
 
 import copy
+from contextlib import nullcontext
 import json
 import os
 import re
@@ -178,6 +179,39 @@ def machine_view(paths):
                 errors=loaded.errors, warnings=loaded.warnings)
 
 
+def change(paths, action, spec=None, harness=None, config_locked=False, request_id=None):
+    """Shared audited writer for legacy commands and the versioned settings API."""
+    from . import config
+    path = path_for(paths)
+    if os.path.realpath(path) != path:
+        error('threshold file contains a symlink')
+    with nullcontext() if config_locked else common.FileLock(paths.config_lock, timeout=5):
+        before = common.read_bytes(path)
+        if action == 'reset':
+            text = INITIAL
+        else:
+            updates = parse_lines(spec)
+            if len(updates) != 1:
+                error('set accepts a single line')
+            key, policy = next(iter(updates.items()))
+            if harness:
+                if key != 'default' and key != harness:
+                    error('prefix conflicts with --harness')
+                key = harness
+            entries = parse_lines(before.decode('utf-8')) if before is not None else parse_lines(initial_for(config._load(paths).settings))
+            entries[key] = policy
+            text = ''.join(('' if h == 'default' else h + ': ') + format_spec(p) + '\n' for h, p in entries.items())
+        entry = {'at': common.iso(), 'kind': 'umbral-' + action,
+                 'sha256_before': common.sha256_bytes(before) if before is not None else None,
+                 'sha256_after': common.sha256_bytes(text.encode('utf-8'))}
+        if request_id is not None:
+            entry['request_id'] = request_id
+        # Record intent before replacement, so a failed audit cannot silently
+        # leave a successful preference change without its owner receipt.
+        common.append_line(paths.changes_log, json.dumps(entry, ensure_ascii=False))
+        common.atomic_write_bytes(path, text.encode('utf-8'))
+
+
 def run(args, paths):
     from . import config
     path = path_for(paths)
@@ -222,28 +256,7 @@ def run(args, paths):
             print(json.dumps(entries, ensure_ascii=False, sort_keys=True))
             print('Valid; no writes.')
             return 0
-        if os.path.realpath(path) != path:
-            error('threshold file contains a symlink')
-        with common.FileLock(paths.config_lock, timeout=5):
-            before = common.read_bytes(path)
-            if args.action == 'reset':
-                text = INITIAL
-            else:
-                updates = parse_lines(args.spec)
-                if len(updates) != 1:
-                    error('set accepts a single line')
-                key, policy = next(iter(updates.items()))
-                if args.harness:
-                    if key != 'default' and key != args.harness:
-                        error('prefix conflicts with --harness')
-                    key = args.harness
-                entries = parse_lines(before.decode('utf-8')) if before is not None else parse_lines(initial_for(config._load(paths).settings))
-                entries[key] = policy
-                text = ''.join(('' if h == 'default' else h + ': ') + format_spec(p) + '\n' for h, p in entries.items())
-            common.atomic_write_bytes(path, text.encode('utf-8'))
-            common.append_line(paths.changes_log, json.dumps({'at': common.iso(), 'kind': 'umbral-' + args.action,
-                'sha256_before': common.sha256_bytes(before) if before is not None else None,
-                'sha256_after': common.sha256_bytes(text.encode('utf-8'))}, ensure_ascii=False))
+        change(paths, args.action, getattr(args, 'spec', None), getattr(args, 'harness', None))
         if getattr(args, 'json', False):
             print(json.dumps(dict(machine_view(paths), operation=args.action, written=True), ensure_ascii=False))
         else:

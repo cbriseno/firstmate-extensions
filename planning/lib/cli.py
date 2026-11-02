@@ -11,20 +11,24 @@ from project_registry import identify, registry, relocate, write
 from preparation_records import directory
 from resolver import resolve
 from policy import enforce, inspect
+import task_preferences
 
 
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
     subs = p.add_subparsers(dest='module', required=True)
+    from settings import add_parser
+    add_parser(subs)
     planning = subs.add_parser('planning')
     actions = planning.add_subparsers(dest='action', required=True)
     for action in ('status', 'set', 'clear', 'resolve', 'relocate'):
         cmd = actions.add_parser(action)
         cmd.add_argument('--home', default=os.environ.get('FM_HOME'))
         cmd.add_argument('--project')
+        cmd.add_argument('--task-id')
         cmd.add_argument('--language', choices=('en', 'es'), default=os.environ.get('FM_PLANNING_LANGUAGE'))
         if action in ('set', 'clear'):
-            cmd.add_argument('--scope', choices=('installation', 'home', 'project'), required=True)
+            cmd.add_argument('--scope', choices=('installation', 'home', 'project', 'task'), required=True)
             cmd.add_argument('--clear-project-overrides', action='store_true')
             cmd.add_argument('--dry-run', action='store_true')
         if action == 'set':
@@ -117,12 +121,29 @@ def status(args, obj):
     if args.project:
         if not home:
             raise PlanningError('Project status requires --home or FM_HOME')
-        result['resolution'] = resolve(home, args.project, obj)
+        selected_task = getattr(args, 'task_id', None)
+        result['resolution'] = resolve(home, args.project, obj, task_id=selected_task)
+        if selected_task:
+            _, root = identify(args.project, obj)
+            result['task_preference'] = dict(task_id=selected_task, project=str(root), home=str(home),
+                                            mode=task_preferences.mode_for(home, root, selected_task))
+    elif getattr(args, 'task_id', None):
+        raise PlanningError('Task status requires --project and --home')
     return result
 
 
-def mutate(args, obj):
+def mutate(args, obj, include_status=True):
     mode = args.mode if args.action == 'set' else 'inherit'
+    if args.scope == 'task':
+        if args.clear_project_overrides:
+            raise PlanningError('--clear-project-overrides conflicts with task scope')
+        home = home_root(args.home)
+        _, root = identify(args.project, obj)
+        if mode != 'inherit':
+            enforce(inspect(root), mode)
+        return task_preferences.set_mode(home, root, args.task_id, mode, args.dry_run)
+    if args.task_id:
+        raise PlanningError('--task-id requires task scope')
     if mode == 'inherit' and args.action == 'set' and args.scope != 'project':
         raise PlanningError('Use planning clear to inherit a home or installation default')
     if args.clear_project_overrides and args.scope == 'project':
@@ -175,7 +196,8 @@ def mutate(args, obj):
             else:
                 (d / 'config.json').write_bytes(data)
         raise
-    result['status'] = status(argparse.Namespace(home=args.home, project=None, language=args.language), obj)
+    if include_status:
+        result['status'] = status(argparse.Namespace(home=args.home, project=None, language=args.language), obj)
     return result
 
 
@@ -186,12 +208,15 @@ def main(argv=None):
     if len(flags) != len(set(flags)):
         p.error('Conflicting repeated options; pass each scope/mode/location once')
     args = p.parse_args(argv)
+    if args.module == 'settings':
+        from settings import run
+        return run(args)
     obj = registry()
     if args.module == 'planning':
         if args.action == 'status':
             result = status(args, obj)
         elif args.action == 'resolve':
-            result = resolve(home_root(args.home), args.project, obj, args.task_mode, args.brief, args.require_core)
+            result = resolve(home_root(args.home), args.project, obj, args.task_mode, args.brief, args.require_core, args.task_id)
         else:
             with locked(installation()):
                 obj = registry()
