@@ -15,7 +15,7 @@ not the complete upstream CLI.
 
 | Component | Requirement / tested combination |
 | --- | --- |
-| OS | Linux only. macOS and Windows are unsupported. |
+| OS | Linux is the accepted baseline. On macOS, planning and settings are supported by design but unverified; relay is unavailable because POSIX `ps` cannot verify process identity and terminal input safety. Other platforms are unverified and relay is unavailable. |
 | Python | 3.11+; distribution checks use 3.11.2, standard library only. |
 | Git | 2.39.5 tested; required for project identity, hooks and clean clones. |
 | Bash | 5.2 tested; relay entrypoints also use coreutils (`dirname`, `readlink`). |
@@ -37,6 +37,28 @@ missing or incompatible Firstmate home with a diagnostic. Without Herdr, relay l
 alternate terminal is started. `doctor --require-relay` reports this as a failure.
 Installing hooks is preparation, not permission to run them or verified activation.
 
+### Prerequisites on a managed macOS account
+
+Use only tools already approved and present on the machine; this repository
+installs no system packages. Keep the checkout, Firstmate home and writable XDG
+directories inside your home. macOS provides `/bin/bash` and `ps`; Git and Python
+3.11+ are not guaranteed. Apple command-line developer tools may prompt for an
+administrator. If an approved tool is missing, ask the image administrator to
+provide it; do not install or update it yourself under a managed policy.
+
+| Tool | Required for | If missing |
+| --- | --- | --- |
+| Python 3.11+ standard library | All extension commands | Commands cannot run. |
+| Bash | Relay entrypoints and project verification | Installation-wide planning remains available. |
+| Git | Cloning, project identity and relay | Existing checkout and installation-wide planning remain usable. |
+| `ps` | Process inspection outside Linux | Affected relay operations refuse when identity is unknown. |
+| Compatible Firstmate | Home/project operations and relay | Installation-wide planning and offline measurement remain available. |
+| Herdr and a supported provider | Live relay and native hooks | Planning and offline inspection remain available. |
+| bubblewrap and `flock` | Optional Linux clean-room checks only | Use the smoke steps below; no native macOS clean-room is claimed. |
+
+No additional Python or Node packages are required. Tool versions listed in the
+compatibility table are tested baselines unless explicitly marked as minimums.
+
 ## Guided installation
 
 Clone the repository into any directory, including a name containing spaces. Keep
@@ -53,8 +75,7 @@ bin/fm-extension planning status --home "$FIRSTMATE_HOME"
 `FIRSTMATE_HOME` is the path to your compatible Firstmate checkout. Choose
 `--harness claude` instead for Claude Code. To install planning skills without a
 Firstmate home, omit `--home`. The installer invokes its doctor automatically; the
-explicit doctor command above requires all relay prerequisites. Doctor verifies
-vendor hashes and installed runtime integrity; it never starts Herdr or a model.
+explicit doctor command above requires all relay prerequisites. Doctor verifies vendor hashes and installed runtime integrity and queries tool version flags; it never starts a terminal session or a model.
 Use `--language en|es` to select the installation planning prose language;
 English is the default. Set `FM_PLANNING_LANGUAGE` for a per-command override.
 Machine protocol keys and diagnostics remain English.
@@ -128,6 +149,22 @@ exercise a real fresh clone, installation, status, scopes, doctor, uninstall and
 second clone with a different name and spaces. The pair scenario
 `extension-with-firstmate.json` requires a separately supplied Firstmate bare repo.
 These checks do not establish native trust, model quality or installed activation.
+
+## macOS check
+
+From the existing checkout, run one command:
+
+```sh
+bin/fm-extension doctor
+```
+
+The doctor prints required and optional tools, their versions when available,
+missing tools, and the resulting limitations. It queries version flags but does
+not start sessions or model inference. Share its output as the environment
+inventory. This does not run unit tests or establish native acceptance. macOS
+acceptance has not been recorded. POSIX `ps` does not supply every identity,
+working-directory, executable or terminal-input proof required by relay safety
+checks; assisted and automatic relay refuse with code `process_evidence_unavailable`. A possible future approach is the macOS-provided `lsof`; it requires acceptance on a real Mac before relay can be enabled.
 
 ## License and attribution
 

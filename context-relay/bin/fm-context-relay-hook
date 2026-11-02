@@ -66,12 +66,13 @@ fm_primary_scope_matches "$primary_home" "$state" >/dev/null 2>&1 || exit 0
 fm_session_lock_owned_by_self "$state" >/dev/null 2>&1 || exit 0
 
 src=${BASH_SOURCE[0]}
+case "$src" in -*) src=./$src ;; esac
 while [ -L "$src" ]; do
-  dir=$(cd -P "$(dirname -- "$src")" && pwd)
-  src=$(readlink -- "$src")
+  dir=$(cd -P "$(dirname "$src")" && pwd)
+  src=$(readlink "$src")
   case "$src" in /*) ;; *) src=$dir/$src ;; esac
 done
-here=$(cd -P "$(dirname -- "$src")" && pwd)
+here=$(cd -P "$(dirname "$src")" && pwd)
 
 owner=''
 read -r owner < "$state/.lock" 2>/dev/null || true

@@ -47,30 +47,80 @@ def home_problems(home):
     return problems
 
 
+def tool_version(name):
+    executable = shutil.which(name)
+    if not executable:
+        return 'missing'
+    if name == 'ps':
+        return 'unknown (no portable version flag)'
+    try:
+        result = subprocess.run([executable, '--version'], capture_output=True, text=True, timeout=3)
+        lines = (result.stdout or result.stderr).splitlines()
+        return lines[0][:160] if result.returncode == 0 and lines else 'unknown'
+    except (OSError, subprocess.SubprocessError):
+        return 'unknown'
+
+
 def doctor(args):
     sys.path.insert(0, str(ROOT / 'planning/lib'))
     from core import bundle
     bundle()
+    sys.path.insert(0, str(ROOT / 'context-relay/lib'))
+    from fm_context_relay import process_inspection as processes
     problems = home_problems(args.home)
     if shutil.which('herdr') is None:
         problems.append('Herdr unavailable: relay requires Herdr 0.9.3/protocol 22; no relay can start')
-    if sys.platform != 'linux':
-        problems.append('Unsupported platform: relay requires Linux')
+    if sys.platform == 'linux':
+        platform = 'accepted baseline'
+        warnings = []
+    elif sys.platform == 'darwin':
+        platform = 'supported by design; macOS acceptance unverified'
+        warnings = ['macOS acceptance has not been recorded', 'Process and terminal safety evidence is unavailable; affected relay operations refuse']
+    else:
+        platform = 'unverified'
+        warnings = ['Platform acceptance has not been recorded', 'Process and terminal safety evidence is unavailable; affected relay operations refuse']
     if shutil.which('git') is None:
-        problems.append('Git unavailable: install Git 2.39.5 or a compatible newer version')
+        problems.append('Git unavailable: project identity and relay require an approved Git')
+    if sys.platform != 'linux' and shutil.which('ps') is None:
+        problems.append('ps unavailable: portable process inspection cannot run')
+    tools = {
+        'python': {'status': 'available', 'required_for': 'all commands', 'minimum': '3.11'},
+        'bash': {'status': 'available' if shutil.which('bash') else 'missing', 'required_for': 'relay and planning project verification'},
+        'git': {'status': 'available' if shutil.which('git') else 'missing', 'required_for': 'project identity and relay; installation-wide planning remains available'},
+        'ps': {'status': 'available' if shutil.which('ps') else 'missing', 'required_for': 'portable process inspection outside Linux'},
+        'firstmate': {'status': 'available' if args.home and not home_problems(args.home) else 'missing or incompatible', 'required_for': 'home/project operations and relay'},
+        'herdr': {'status': 'available' if shutil.which('herdr') else 'missing', 'required_for': 'relay launch; planning and offline measurement remain available'},
+        'provider': {'status': 'not checked', 'required_for': 'native provider hooks and live relay; local planning remains available'},
+    }
+    if not shutil.which('bash'):
+        problems.append('Bash unavailable: relay and planning project verification require Bash')
     state = runtime() / 'installation.json'
     installed = state.is_file()
     if installed:
         record = json.loads(state.read_text())
         if record['files'] != digest(runtime()):
             raise RuntimeError('Installed runtime changed; inspect the installation before reinstalling or removing it')
-    print(json.dumps({'ok': not args.require_relay or not problems, 'version': VERSION,
+    for name in ('bash', 'git', 'ps', 'herdr'):
+        tools[name]['version'] = tool_version(name)
+        tools[name]['category'] = 'required' if name == 'bash' else 'optional by feature'
+    tools['python'].update(version=sys.version.split()[0], category='required')
+    tools['firstmate'].update(version='unknown (not inspected)', category='optional by feature')
+    tools.pop('provider')
+    for name in ('codex', 'claude'):
+        tools[name] = {'status': 'available' if shutil.which(name) else 'missing',
+                       'version': tool_version(name), 'category': 'optional by feature',
+                       'required_for': 'native provider hooks and live relay'}
+    relay_available = not problems and processes.safety_evidence_available()
+    relay_diagnostic = None if processes.safety_evidence_available() else dict(
+        code=processes.RELAY_UNAVAILABLE_CODE, message=processes.RELAY_UNAVAILABLE_MESSAGE)
+    print(json.dumps({'ok': not args.require_relay or relay_available, 'version': VERSION,
                       'vendor_verified': True, 'installed': installed,
-                      'planning': 'available', 'relay': 'unavailable' if problems else 'prerequisites present',
-                      'diagnostics': problems, 'automatic_default': 'off (warn)',
+                      'planning': 'available', 'relay': 'prerequisites present' if relay_available else 'unavailable',
+                      'relay_diagnostic': relay_diagnostic,
+                      'diagnostics': problems, 'platform': platform, 'warnings': warnings, 'tools': tools, 'automatic_default': 'off (warn)',
                       'activation': 'unverified; native hook trust and skill discovery require separate checks',
                       'language': args.language}, indent=2))
-    return 2 if args.require_relay and problems else 0
+    return 2 if args.require_relay and not relay_available else 0
 
 
 def installation(args):

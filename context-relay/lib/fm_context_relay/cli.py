@@ -22,6 +22,7 @@ from . import automatic
 from . import thresholds
 from . import activation
 from . import intent
+from . import process_inspection as processes
 
 SET_HELP = """Atomically change a reviewed config/context-relay.json value and record date,
 reason and approval in data/context-relay/config-changes.jsonl.
@@ -403,6 +404,18 @@ def build_parser():
 def main(argv, sanitized=False):
     parser = build_parser()
     args = parser.parse_args(argv)
+    # Status, hook guards and the kill switch remain usable everywhere.
+    # Refuse every lifecycle entry point before resolving homes or touching a backend.
+    if not processes.safety_evidence_available():
+        restricted = ((args.command == 'relay' and args.action not in ('status', 'guard', 'abort'))
+                      or args.command == 'pane-close'
+                      or (args.command == 'auto' and args.auto_action == 'authorize')
+                      or (args.command == 'set' and args.key == 'relay_mode'
+                          and not args.unset and args.value in ('assisted', 'auto')))
+        if restricted:
+            print(json.dumps(dict(status='unavailable', code=processes.RELAY_UNAVAILABLE_CODE,
+                                  reason=processes.RELAY_UNAVAILABLE_MESSAGE)))
+            return 1
     if args.command == 'relay' and args.action == 'start' and not sanitized:
         # Firstmate supports Python-hosted harnesses and classifies their argv.
         # Keep user-provided harness names/quotes out of this interpreter's

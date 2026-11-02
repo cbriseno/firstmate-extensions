@@ -88,3 +88,5 @@ use clean environment variables. Checks must return 0. The runner stops on first
 failure or private-reference finding. `synthetic: true` labels test substitutes;
 their results never establish acceptance of real products. Regression fixtures
 exercise isolation, privacy rejection, dependency failure, timeouts and cleanup.
+
+The clean-room runner is optional and Linux-specific; it requires bubblewrap and `flock`, which macOS does not provide as this Linux sandbox. Without them, use the clean-room-free smoke steps in the repository README. Python, Git and Bash requirements for the extension itself are described there.

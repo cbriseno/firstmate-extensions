@@ -7,12 +7,13 @@ set -u
 
 # Resolve this script through symlinks without readlink -f (macOS bash 3.2).
 src=${BASH_SOURCE[0]}
+case "$src" in -*) src=./$src ;; esac
 while [ -L "$src" ]; do
-  dir=$(cd -P "$(dirname -- "$src")" && pwd)
-  src=$(readlink -- "$src")
+  dir=$(cd -P "$(dirname "$src")" && pwd)
+  src=$(readlink "$src")
   case "$src" in /*) ;; *) src=$dir/$src ;; esac
 done
-here=$(cd -P "$(dirname -- "$src")" && pwd)
+here=$(cd -P "$(dirname "$src")" && pwd)
 
 command -v python3 >/dev/null 2>&1 || { echo "fm-context-relay: python3 is not installed" >&2; exit 2; }
 exec python3 -I "$here/../lib/fm_context_relay_main.py" cli "$@"

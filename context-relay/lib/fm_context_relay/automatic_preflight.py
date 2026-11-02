@@ -35,7 +35,7 @@ def verify(args, paths, directory, attempt):
             'versiones cambiaron')
     original = assisted.argv_of(owner['process']['pid'])
     require(original == package['native_argv'], 'native argv changed')
-    require(assisted.digest('/proc/%d/exe' % owner['process']['pid']) == package['executable_sha256'],
+    require(assisted.processes.executable_digest(owner['process']['pid']) == package['executable_sha256'],
             'native binary changed')
     assisted.no_resume(original)
     launch = assisted.load(directory/'launch.json')

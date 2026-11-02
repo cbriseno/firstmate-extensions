@@ -97,7 +97,8 @@ def main(source):
 if __name__ == '__main__':
     try:
         bundle()  # Validate the exact offline payload before touching client skill directories.
-        with tempfile.TemporaryDirectory(prefix='planning-package-') as tmp:
+        Path.home().mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='.planning-package-', dir=Path.home()) as tmp:
             source = Path(tmp) / 'skills'
             shutil.copytree(SOURCE, source)
             runtime = source / 'firstmate-planning/runtime'

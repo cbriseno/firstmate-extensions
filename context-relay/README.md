@@ -1,6 +1,6 @@
 # Context relay
 
-An optional Linux/Herdr continuity extension for Firstmate. It observes supported
+An optional continuity extension for Firstmate and Herdr. It observes supported
 native transcripts, records context pressure and requests a safe point. `warn` is
 the default; hooks never obtain authority by measuring pressure. `assisted` needs
 explicit confirmation tied to the prepared package. `auto` additionally requires
@@ -14,8 +14,16 @@ its precise arguments. Configuration and receipts belong to the private home.
 
 ## Requirements and evidence
 
-Python 3.11+, Git 2.39.5 tested, Bash 5.2 tested and Linux are required by this
-distribution. Relay requires Firstmate with supported primary-scope/session-lock
+Python 3.11+ and Bash are required for relay; Git and a compatible Firstmate
+home are required for identity, and Herdr plus a supported provider are required
+for live handover. Git 2.39.5 and Bash 5.2 are tested baselines, not enforced
+minimums. Linux is the accepted baseline. macOS planning and settings are supported by
+design but unverified; relay is unavailable because POSIX `ps` cannot verify
+process identity and terminal input safety. Other platforms are unverified and
+relay is unavailable. Assisted and automatic relay refuse with code
+`process_evidence_unavailable`; status and the kill switch remain available.
+The macOS-provided `lsof` is a possible future approach, but native acceptance
+on a real Mac is required before enabling relay. Relay requires Firstmate with supported primary-scope/session-lock
 libraries and the explicit `fm-lock-release.sh`/`.py` primitive. The recorded relay
 baseline is Firstmate `33fc9463`, Herdr 0.9.3/protocol 22, Codex 0.166.0 or Claude
 Code 2.1.316. These are prior live tests, not freshly repeated export tests.
@@ -28,8 +36,8 @@ profiles fail closed. See [compatibility.json](../compatibility.json).
 
 Without Firstmate, commands requiring its home refuse with a diagnostic. Without
 Herdr, relay launch refuses; no alternate runtime is started. Planning and offline
-transcript measurement remain independent. Doctor checks prerequisites without
-starting providers, terminal sessions or model inference.
+transcript measurement remain independent. Doctor checks prerequisites and queries tool version flags without starting
+terminal sessions or model inference.
 
 ## Hooks, trust and removal
 

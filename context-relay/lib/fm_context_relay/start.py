@@ -368,7 +368,7 @@ def drive(args, paths):
                     require(pid != auth['old_frontend_pid'] and sid != auth['old_sid'], 'identidad reutilizada')
                     require((home/'state/.session-start-complete').read_text().strip() == str(pid), 'startup incomplete')
                     require(relay.argv_of(pid) == package['native_argv'], 'successor argv changed')
-                    require(relay.digest('/proc/%s/exe' % pid) == package['executable_sha256'], 'executable changed')
+                    require(relay.processes.executable_digest(pid) == package['executable_sha256'], 'executable changed')
                     terminal = backend.terminal(auth['new_pane'])
                     require(terminal == package['destination'] and pane_close.identity(pid)['tty'] == terminal['shell']['tty'], 'successor terminal changed')
                     return True
@@ -390,7 +390,7 @@ def drive(args, paths):
                     for row in info.get('foreground_processes', []):
                         pid = row.get('pid')
                         if type(pid) is int and relay.argv_of(pid) == package['native_argv']:
-                            require(relay.digest('/proc/%d/exe' % pid) == package['executable_sha256'], 'new binary changed')
+                            require(relay.processes.executable_digest(pid) == package['executable_sha256'], 'new binary changed')
                             require(pane_close.identity(pid)['tty'] == package['destination']['shell']['tty'], 'frontend belongs to another terminal')
                             candidates.append(pid)
                     pane = backend.pane(auth['new_pane'])

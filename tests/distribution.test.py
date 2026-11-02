@@ -1,5 +1,10 @@
 """Installation portability and ownership protection, using temporary private homes."""
 import json
+import contextlib
+import importlib.util
+import io
+from types import SimpleNamespace
+from unittest import mock
 import os
 from pathlib import Path
 import shutil
@@ -85,6 +90,36 @@ class DistributionTest(unittest.TestCase):
         self.assertFalse(self.installed.exists())
         result = self.run_cli('relay', 'status', code=2)
         self.assertIn('Firstmate home unavailable', result.stderr)
+
+
+class DoctorPlatformTest(unittest.TestCase):
+    def test_platform_diagnostics_and_explicit_relay_requirement(self):
+        spec = importlib.util.spec_from_file_location('distribution_test_subject', ROOT / 'bin/distribution.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        args = SimpleNamespace(home=None, require_relay=False, language='en')
+        for platform, expected, warning in [('linux', 'accepted baseline', False),
+                                             ('darwin', 'supported by design; macOS acceptance unverified', True),
+                                             ('freebsd', 'unverified', True)]:
+            with self.subTest(platform=platform), mock.patch.object(module.sys, 'platform', platform), \
+                 mock.patch.object(module, 'home_problems', return_value=[]), \
+                 mock.patch.object(module.shutil, 'which', return_value='/available'), \
+                 mock.patch.object(module, 'runtime', return_value=Path('/nonexistent-runtime')), \
+                 contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(module.doctor(args), 0)
+                result = json.loads(output.getvalue())
+                self.assertEqual(result['platform'], expected)
+                self.assertEqual(bool(result['warnings']), warning)
+                self.assertEqual(result['relay'], 'prerequisites present' if platform == 'linux' else 'unavailable')
+                if platform != 'linux':
+                    self.assertEqual(result['relay_diagnostic']['code'], 'process_evidence_unavailable')
+                    args.require_relay = True
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        self.assertEqual(module.doctor(args), 2)
+                    args.require_relay = False
+                for name in ('python', 'bash', 'git', 'ps', 'firstmate', 'herdr', 'codex', 'claude'):
+                    self.assertIn('version', result['tools'][name])
+                    self.assertIn('category', result['tools'][name])
 
 
 if __name__ == '__main__':

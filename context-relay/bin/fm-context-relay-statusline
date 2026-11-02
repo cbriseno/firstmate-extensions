@@ -9,7 +9,7 @@ shift 2
 forward=''
 if [ "${1:-}" = --forward ] && [ "$#" -ge 2 ]; then forward=$2; fi
 payload=$(cat 2>/dev/null) || payload=''
-here=$(cd -P "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+here=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 printf '%s' "$payload" | "$here/fm-context-relay-hook" --home "$relay_home" claude StatusLine >/dev/null 2>&1 || true
 if [ -n "$forward" ]; then
   printf '%s' "$payload" | bash -c "$forward"

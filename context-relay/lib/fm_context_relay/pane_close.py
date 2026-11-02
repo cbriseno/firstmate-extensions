@@ -17,9 +17,9 @@ import stat
 import subprocess
 import termios
 
-from . import common, identity as native_identity
+from . import common, identity as native_identity, process_inspection as processes
 
-HELP = """Post-acceptance finalizer: local Herdr and Linux /proc only.
+HELP = """Post-acceptance finalizer: local Herdr; unknown safety evidence preserves the pane.
 This command does not transfer authority, start sessions, signal or acquire locks.
 Before retiring, the native outgoing owner runs pane-close prepare with --handoff
 and an explicit --herdr-session. It validates authorization.json, native startup,
@@ -62,27 +62,21 @@ def load(path):
 
 def process(pid):
     require(type(pid) is int and pid > 1, "invalid PID")
-    try:
-        raw = Path("/proc/%d/stat" % pid).read_text()
-    except FileNotFoundError:
-        return None
-    fields = raw[raw.rfind(")") + 2:].split()
-    return dict(pid=pid, start=fields[19], state=fields[0], parent=int(fields[1]),
-                group=int(fields[2]), session=int(fields[3]), tty=int(fields[4]), foreground=int(fields[5]))
+    return processes.process(pid)
 
 
 def identity(pid):
     row = process(pid)
     require(row is not None and row["state"] != "Z", "proceso ausente: %s" % pid)
     result = {key: row[key] for key in ("pid", "start", "session", "tty")}
-    executable = os.stat("/proc/%d/exe" % pid)
+    executable = processes.proc_path(pid, 'exe').stat()
     result["executable"] = [executable.st_dev, executable.st_ino]
-    result["argv_sha256"] = common.sha256_bytes(Path("/proc/%d/cmdline" % pid).read_bytes())
+    result["argv_sha256"] = common.sha256_bytes(processes.argv_bytes(pid))
     return result
 
 
 def input_counters(shell):
-    counters = dict(line.split(":", 1) for line in Path("/proc/%d/io" % shell["pid"]).read_text().splitlines())
+    counters = dict(line.split(":", 1) for line in processes.proc_path(shell['pid'], 'io').read_text().splitlines())
     return dict(rchar=int(counters["rchar"]), syscr=int(counters["syscr"]))
 
 
@@ -129,7 +123,7 @@ class Backend:
         info = os.stat(socket)
         require(stat.S_ISSOCK(info.st_mode), "Herdr endpoint is not a socket")
         return dict(session=self.session, socket=socket, device=info.st_dev, inode=info.st_ino,
-                    ctime_ns=info.st_ctime_ns, boot=Path("/proc/sys/kernel/random/boot_id").read_text().strip())
+                    ctime_ns=info.st_ctime_ns, boot=processes.boot_id())
 
     def pane(self, pane):
         value = self.call("pane", "get", pane, missing=True)
@@ -181,14 +175,14 @@ def empty_shell(backend, captured):
     info = backend.call("pane", "process-info", "--pane", captured["pane"])["process_info"]
     require(info.get("foreground_process_group_id") == row["group"]
             and [p["pid"] for p in info.get("foreground_processes", [])] == [shell["pid"]], "panel ocupado en primer plano")
-    for path in Path("/proc").iterdir():
-        if not path.name.isdigit() or int(path.name) <= 1:
+    for pid in processes.pids():
+        if pid <= 1:
             continue
-        other = process(int(path.name))
+        other = process(pid)
         if other and other["state"] != "Z" and (other["session"] == shell["session"] or other["tty"] == shell["tty"]):
             require(other["pid"] == shell["pid"], "another process in pane session/tty: %s" % other["pid"])
     # Opening the slave without reading leaves terminal contents untouched.
-    fd = os.open("/proc/%d/fd/0" % shell["pid"], os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
+    fd = os.open(processes.proc_path(shell["pid"], "fd/0"), os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
     try:
         # TIOCGPGRP requires the caller's controlling tty on Linux; /proc stat
         # exposes the original tty's foreground group across successor sessions.

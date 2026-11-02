@@ -4,9 +4,9 @@
   "resolver_version": "1.0.0",
   "minimum_python": "3.11",
   "platform": {
-    "linux": "supported; local fixtures and clean-clone checks",
-    "macos": "unsupported",
-    "windows": "unsupported"
+    "linux": "accepted baseline; local fixtures and clean-clone checks",
+    "macos": "planning and settings supported by design, unverified; relay unavailable because POSIX ps cannot verify process identity and terminal input safety",
+    "other": "unverified"
   },
   "firstmate_surface": "scoped skills and durable task briefs; no dispatcher hooks or tracked core edits",
   "spec_kit": {
@@ -68,10 +68,11 @@
     "unsupported": [
       "shared Codex daemon",
       "Claude production 1M sessions",
-      "macOS",
       "Windows"
     ],
     "missing_firstmate": "refuse dependent operations with a diagnostic",
-    "missing_herdr": "relay unavailable; no alternate terminal launch"
+    "missing_herdr": "relay unavailable; no alternate terminal launch",
+    "macos": "unavailable: POSIX ps cannot verify process identity and terminal input safety; code process_evidence_unavailable",
+    "macos_design_note": "The macOS-provided lsof is a possible future approach; real Mac acceptance is required before enabling relay."
   }
 }

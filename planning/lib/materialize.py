@@ -79,7 +79,8 @@ def preview(root, key):
 
 def smoke(root):
     """Exercise all helpers on a disposable project, never on authored artifacts."""
-    with tempfile.TemporaryDirectory(prefix='core-probe-') as tmp:
+    Path.home().mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.core-probe-', dir=Path.home()) as tmp:
         probe = Path(tmp)
         for name in ('.specify/scripts', '.specify/templates'):
             shutil.copytree(root / name, probe / name)

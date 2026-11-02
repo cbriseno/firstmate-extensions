@@ -13,9 +13,11 @@ elif [ "${BASH_SOURCE[0]}" = "$0" ]; then
   echo 'must be sourced in the original dedicated shell' >&2
   exit 2
 elif [ "${1:-}" = --park ] && [ "$#" -eq 2 ]; then
-  if python3 -I - "$2" "$$" <<'PY'
+  if python3 -I - "$2" "$$" "${BASH_SOURCE[0]}" <<'PY'
 import json,os,sys
 from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[3]).resolve().parents[1] / 'lib'))
+from fm_context_relay import process_inspection as processes
 directory=Path(sys.argv[1]); pid=int(sys.argv[2])
 try:
     assert directory.is_absolute() and directory.resolve()==directory
@@ -28,9 +30,9 @@ try:
     shell=prepared['predecessor']['shell']
     assert auth['park_after_exit'] and attempt['state']=='retired-awaiting-exit'
     assert retired['checkpoint_sha256']==attempt['checkpoint_sha256']
-    assert shell['pid']==pid and not Path('/proc/%s'%auth['old_frontend_pid']).exists()
-    stat=Path('/proc/%s/stat'%pid).read_text().rsplit(')',1)[1].split()
-    assert stat[19]==shell['start'] and int(stat[4])==shell['tty'] and int(stat[3])==shell['session']
+    assert shell['pid']==pid and processes.process(auth['old_frontend_pid']) is None
+    stat=processes.process(pid)
+    assert stat['start']==shell['start'] and stat['tty']==shell['tty'] and stat['session']==shell['session']
     (directory/'shell-parked.json').write_text(json.dumps({'pid':pid,'start':shell['start']})+'\n')
 except (OSError,ValueError,KeyError,AssertionError):
     sys.exit(1)

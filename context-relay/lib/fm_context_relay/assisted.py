@@ -15,7 +15,7 @@ import subprocess
 import sys
 import uuid
 
-from . import common, config, events, identity, pane_close, session
+from . import common, config, events, identity, pane_close, session, process_inspection as processes
 
 HELP = """Local Linux/Herdr relay. Hooks request a safe point; they do not launch.
 relay start is the guided entrypoint (relay start --help).
@@ -79,7 +79,7 @@ def native(home, harness, payload=None):
 
 
 def argv_of(pid):
-    return [v.decode() for v in Path('/proc/%s/cmdline' % pid).read_bytes().split(b'\0') if v]
+    return [v.decode() for v in processes.argv_bytes(pid).split(b'\0') if v]
 
 
 def no_resume(argv):
@@ -95,9 +95,10 @@ def peers(home, harness, allowed=()):
     No process-global session store or other home endpoint is consulted.
     """
     found = []
-    for path in Path('/proc').iterdir():
-        if not path.name.isdigit() or int(path.name) in allowed:
+    for pid in processes.pids():
+        if pid in allowed:
             continue
+        path = processes.proc_path(pid, '')
         try:
             name = (path/'comm').read_text().strip()
             if not (name == 'codex' or name.startswith('claude')):
@@ -362,7 +363,7 @@ def prepare(args, paths):
     artifacts = {p.name: digest(p) for p in directory.iterdir() if p.is_file() and not p.name.startswith('.')}
     package = dict(schema='fm-assisted-package.v1', attempt=attempt_id, home=str(home), at=common.iso(),
                    artifacts=artifacts, config_sha256=digest(paths.config), native_argv=original,
-                   executable_sha256=digest('/proc/%d/exe' % owner['process']['pid']),
+                   executable_sha256=processes.executable_digest(owner['process']['pid']),
                    harness_files=harness_files(home, args.harness, launch, original),
                    version_key=version_key(version), backend=backend.incarnation(), destination=new,
                    transport_helper_sha256=digest(args.herdr_lab_helper) if args.herdr_lab_helper else None)
@@ -460,7 +461,7 @@ def advance(args, paths, directory, attempt):
         require(pane_close.process(attempt['outgoing']['process']['pid']) is None, 'outgoing frontend still alive')
         owner = owner_for(home, attempt, backend, False)
         require(argv_of(owner['process']['pid']) == package['native_argv'], 'successor harness/configuration changed')
-        require(digest('/proc/%d/exe' % owner['process']['pid']) == package['executable_sha256'], 'successor executable changed')
+        require(processes.executable_digest(owner['process']['pid']) == package['executable_sha256'], 'successor executable changed')
         peers(home, load(directory/'authorization.json')['harness'], [owner['process']['pid']])
         if attempt['state'] == 'accepted':
             require(load(directory/'successor-ready.json')['owner'] == owner, 'acceptance belongs to another successor')

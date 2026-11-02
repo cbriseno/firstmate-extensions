@@ -169,7 +169,7 @@ def set_mode(paths, mode, words=None, reason=None, selected_limits=None, runtime
     with nullcontext() if config_locked else common.FileLock(paths.config_lock, timeout=5):
         require(isinstance(words, str) and bool(words.strip()) and isinstance(reason, str)
                 and bool(reason.strip()), 'explicit operator words and reason required')
-        require(sys.platform == 'linux', 'auto is verified only on Linux')
+        require(pane_close.processes.safety_evidence_available(), pane_close.processes.RELAY_UNAVAILABLE_MESSAGE)
         require(Path(paths.config).resolve() == Path(paths.config), 'config does not follow symlinks')
         _, obj = _config_bytes(paths)
         obj['relay_mode'] = 'auto'

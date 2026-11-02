@@ -14,8 +14,8 @@ def view(paths, harness, codex_home=None):
     def add(code, message):
         reasons.append(dict(code=code, message=message))
 
-    if sys.platform != 'linux':
-        add('unsupported_platform', 'Automatic relay is verified on Linux only')
+    if not pane_close.processes.safety_evidence_available():
+        add(pane_close.processes.RELAY_UNAVAILABLE_CODE, pane_close.processes.RELAY_UNAVAILABLE_MESSAGE)
     if harness not in automatic.SUPPORTED_HARNESSES:
         add('unsupported_harness', 'Automatic relay supports claude and codex only')
     else:

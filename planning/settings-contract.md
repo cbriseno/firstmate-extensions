@@ -43,7 +43,7 @@ The following JSON fragments define the field shapes; `REV` is an opaque string 
 The relay CLI also exposes the same read as `fm-context-relay --home HOME auto preflight --harness HARNESS [--codex-home DIR]`.
 `eligible` requires a current standing authorization and prerequisites; `can_authorize` requires prerequisites only, because the explicit authorize action records a new grant.
 Each reason is an object with stable `code` and explanatory `message`.
-Codes are `unsupported_platform`, `unsupported_harness`, `missing_hooks`, `invalid_hooks`, `codex_trust_unverified`, `invalid_configuration`, `missing_standing_authorization`, and `invalid_standing_authorization`.
+Codes are `process_evidence_unavailable`, `unsupported_harness`, `missing_hooks`, `invalid_hooks`, `codex_trust_unverified`, `invalid_configuration`, `missing_standing_authorization`, and `invalid_standing_authorization`.
 This settings preflight does not prove a session can retire; the existing safe-point and launch checks still run at handoff time.
 Codex preparation cannot prove native trust, so preflight conservatively reports `codex_trust_unverified` even when hook entries are present.
 Authorize can record an explicit grant independently of operational readiness; no preflight result grants authority or bypasses the existing runtime checks.

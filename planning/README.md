@@ -11,7 +11,11 @@ not enable Spec Kit, grant native trust, start models, or change delivery author
 
 ## Setup
 
-Requires Python 3.11+, POSIX file locking and Bash for the optional shell wrapper.
+Requires Python 3.11+ and POSIX file locking. Bash is required for project
+verification and the shell wrapper; without it installation-wide status remains
+available. Git and a Firstmate home are required for project identity and scoped
+home/project operations; without them installation-wide planning remains
+available. Herdr and provider tools are optional and unnecessary for planning.
 The fixture suite is tested on Linux; native client discovery and other platforms
 have not been verified by these fixtures. No third-party Python packages, `uv`,
 `specify-cli`, model calls or network access are needed at runtime.
