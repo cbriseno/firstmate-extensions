@@ -9,7 +9,7 @@ import subprocess
 
 from . import common
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 EXTENSION_FILES = (
     'lib/fm_context_relay_main.py',
     'lib/fm_context_relay/__init__.py',

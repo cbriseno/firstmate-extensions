@@ -136,6 +136,7 @@ Firstmate HEAD and primitive hashes. Legacy authority is refused rather than mig
 each new grant still requires the operator actual words. Status and notices identify
 the changed component. Measurement admission is separate from native acceptance.
 
+Automatic safe points inherit confirmed agentless tasks unresolved under the [safe-point contract](SAFETY.md#automatic-safe-point).
 Authorization does not relax safe-point, runtime, native ownership, launch-once,
 acceptance or panel-close guards. The kill switch revokes the current generation
 immediately and cannot be overwritten by an in-flight old grant. It never reclaims

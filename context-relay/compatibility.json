@@ -52,10 +52,19 @@
   },
   "authorization_binding": {
     "manifest": "lib/fm_context_relay/safety_manifest.py",
-    "protocol_version": 1,
+    "protocol_version": 2,
     "extension": "all executable modules, wrappers and successor template; pure data excluded",
     "firstmate": "existing Git HEAD and seven primitive hashes preserved",
     "legacy_authority": "refused, never migrated",
     "verification": "isolated mutation, coverage, and core revision regressions"
+  },
+  "automatic_safe_point": {
+    "protocol_version": 2,
+    "parked_without_agent": "unknown task with a fresh metadata-bound backend.agent_state missing/dead verdict; inherited unresolved in package notes",
+    "probe": "existing Firstmate classifier; read only, 5 seconds per task, 10 seconds total; no work snapshot or lock",
+    "unknown_without_positive_evidence": "refused; cheap endpoint absence is insufficient",
+    "live_workers": "exact safe-point pause acknowledgement still required",
+    "verification": "isolated synthetic backend and fleet snapshot regressions; no native acceptance or installed activation",
+    "contract": "SAFETY.md#automatic-safe-point"
   }
 }

@@ -292,11 +292,11 @@ def prepare(args, paths):
     require(current_policy and record['relay'].get('policy') == current_policy
             and record.get('session_id') == sid and record.get('harness') == args.harness
             and str(record.get('owner_pid')) == str(owner['process']['pid']), 'stale request or different owner/policy')
+    notes = load(Path(args.notes))
     auto_auth = None
     if mode == 'auto':
         from . import automatic
-        auto_auth = automatic.verify_reservation(paths, reservation, record)
-    notes = load(Path(args.notes))
+        auto_auth = automatic.verify_reservation(paths, reservation, record, notes)
     require(all(isinstance(notes.get(k), list) for k in NOTE_KEYS) and isinstance(notes.get('safe_point'), str)
             and len(notes['safe_point'].strip()) >= 20, 'punto seguro incompleto')
     launch = load(Path(args.launch))
@@ -349,6 +349,7 @@ def prepare(args, paths):
               +prefix+" --review 'YOUR_REVIEW' --blockers '[]'\n"
               'Replace YOUR_REVIEW with your concrete recovery review (at least 20 characters).\n'
               'Before acceptance use one CLI command at a time, without echo, wrappers or compound shell syntax.\n'
+              'Keep parked_without_agent tasks in notes.json unresolved; absence does not complete their work.\n'
               'After acceptance, continue the pending_work from notes.json exactly once.\n')
     prompt += ('After acceptance you may combine the pending file check and write with pane-close inspect in one shell call. '
                'Visually inspect its screen before your own ready confirmation. Then ready && finalize may share one call.\n')

@@ -77,8 +77,33 @@ Old fingerprint formats are rejected as `binding_format (legacy authorization)` 
 Every new authorization still requires the captain's verbatim words and reason through the existing audited authorizer.
 Updating this extension does not authorize or start a relay.
 
+## Automatic safe point
+
+A fleet snapshot must identify this home, contain a valid main inventory and tasks/backlog, and have a generation timestamp no more than 60 seconds old.
+Finished tasks retain their existing treatment.
+Every other live worker must be paused and have a durable last status line acknowledging the exact current safe-point key at or after the request.
+The existing refusal text `worker activo/unknown: esperar pausa segura` and `worker has not acknowledged this safe point` remains applicable.
+
+Only an `unknown` task without that acknowledgement is eligible for a read-only absence probe.
+Its current-state observation must be fresh and belong to the snapshot generation.
+The probe validates its local endpoint through Firstmate's existing `fm_backend_validate_task_endpoint` and reuses `fm_backend_agent_state`; it never invokes work snapshot, reconciles pauses or takes the work lock.
+It allows at most five seconds per task and ten seconds total per safe-point evaluation, terminating the probe process group on timeout.
+Only a successful structural `missing` or `dead` verdict proves no agent exists.
+A cheap `endpoint.status=absent`, failed presence query or human detail string cannot prove absence.
+Errors, timeouts, unreadable, ambiguous, unverified and unexpected results remain unknown and refuse the safe point.
+Other nonterminal states retain the existing pause requirement.
+
+The captured metadata hash must match the local metadata before and after the probe, and its validated backend and target must match the fleet row.
+Remote routes and changed, missing or symlinked metadata refuse the exception.
+The reservation carries `parked_without_agent` into the package's hashed `notes.json`: task id, last captured status line, stable reason `parked_without_agent`, unresolved marker, structural verdict, observation time, backend, target, metadata hash and spawn generation.
+The successor inherits these tasks unresolved; absence is neither completion nor permission to discard work.
+The pre-retirement check repeats the probe and refuses any newly parked task or changed metadata not inherited in the sealed package.
+Protocol version 2 invalidates earlier standing authority through the existing manifest binding; the Firstmate HEAD binding is unchanged.
+
 ## Verification
 
 `tests/automatic.test.py` covers positive/negative admission, the executable inventory, component mutations, pure-data stability, legacy refusal and preserved core revision invalidation in disposable homes.
 `tests/session.test.py` exercises rollout-derived current window evidence; `tests/thresholds.test.py` exercises the hook/CLI path for listed and unlisted Claude models.
 These are isolated synthetic regressions, separate from the README's previously recorded native acceptance evidence.
+
+Synthetic backend regressions in `tests/automatic.test.py` cover parked inheritance, fail-closed probe outcomes, metadata and snapshot currency, budgets and exact pause keys.

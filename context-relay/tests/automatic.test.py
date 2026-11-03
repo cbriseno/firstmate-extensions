@@ -46,6 +46,7 @@ class AutomaticSafety(unittest.TestCase):
                               captain_call_in_progress=False, landing_in_progress=False,
                               critical_operation_in_progress=False))
         self.operational = dict(snapshot=dict(schema='fm-fleet-snapshot.v1', fm_home=str(self.home),
+                                              generated=common.iso(self.now),
                                               main_inventory=dict(valid=True), tasks=[],
                                               backlog=dict(records=[])))
 
@@ -62,7 +63,133 @@ class AutomaticSafety(unittest.TestCase):
         return auto.notice(self.paths, self.record, self.now)
 
     def reserve(self):
+        self.operational['snapshot']['generated'] = common.iso(self.now)
         return auto.reserve(self.paths, self.record, self.notes, self.operational, self.now)
+
+    def unknown_worker(self, verdict='missing'):
+        (self.home/'bin').mkdir(exist_ok=True)
+        (self.home/'bin/fm-backend.sh').write_text('''
+fm_backend_validate_task_endpoint() {
+  FM_BACKEND_VALIDATED_BACKEND=synthetic
+  FM_BACKEND_VALIDATED_TARGET=fixture-window
+}
+fm_backend_agent_state() {
+  printf 'probe\\n' >> "$FM_HOME/probes"
+  case "$(cat "$FM_HOME/verdict")" in
+    timeout) sleep 2; printf 'missing\\n' ;;
+    error) printf 'missing\\n'; return 1 ;;
+    changed) printf 'spawn_gen=replaced\\n' >> "$FM_HOME/state/worker.meta"; printf 'missing\\n' ;;
+    *) cat "$FM_HOME/verdict" ;;
+  esac
+}
+''')
+        (self.home/'verdict').write_text(verdict+'\n')
+        meta = 'backend=synthetic\nwindow=fixture-window\nspawn_gen=generation-one\n'
+        (self.home/'state/worker.meta').write_text(meta)
+        status = 'paused [at=123]: paused by captain, unresolved\n'
+        (self.home/'state/worker.status').write_text(status)
+        self.operational['files'] = {
+            'state/worker.meta': dict(text=meta, sha256=common.sha256_bytes(meta.encode())),
+            'state/worker.status': dict(text=status, sha256=common.sha256_bytes(status.encode()))}
+        self.operational['snapshot']['tasks'] = [dict(id='worker', backend='synthetic',
+            current_state=dict(state='unknown', source='none', freshness='fresh', observed_at=common.iso(self.now)),
+            endpoint=dict(status='absent', exists=False, target='fixture-window'))]
+
+    def test_parked_missing_and_dead_are_inherited_in_package_notes(self):
+        for verdict in ('missing', 'dead'):
+            with self.subTest(verdict=verdict):
+                self.unknown_worker(verdict)
+                self.enabled()
+                self.request()
+                # Exercise the exact notes enrichment used by assisted.prepare,
+                # without invoking any relay lifecycle operation.
+                reservation = self.reserve()
+                package_notes = dict(pending_work=['Unresolved parked worker'])
+                auto.verify_reservation(self.paths, reservation['id'], self.record, package_notes)
+                inherited = json.loads(json.dumps(package_notes))['parked_without_agent'][0]
+                self.assertEqual(inherited['id'], 'worker')
+                self.assertEqual(inherited['last_status_line'], 'paused [at=123]: paused by captain, unresolved')
+                self.assertEqual(inherited['reason'], 'parked_without_agent')
+                self.assertTrue(inherited['unresolved'])
+                self.assertEqual(inherited['worker_liveness']['verdict'], verdict)
+                self.assertEqual(inherited['worker_liveness']['target'], 'fixture-window')
+                self.assertEqual(inherited['worker_liveness']['spawn_gen'], 'generation-one')
+                self.assertEqual(inherited['worker_liveness']['metadata_sha256'],
+                                 self.operational['files']['state/worker.meta']['sha256'])
+                # A separate isolated ledger for the next independent verdict.
+                auto.locations(self.paths)['ledger'].unlink()
+
+    def test_unknown_without_positive_gone_evidence_fails_closed(self):
+        self.enabled()
+        self.request()
+        for verdict in ('alive', 'unreadable', 'ambiguous', 'unverified', 'unexpected', 'error', 'timeout', 'changed'):
+            with self.subTest(verdict=verdict), mock.patch.object(auto, 'AGENT_PROBE_SECONDS', 0.05):
+                self.unknown_worker(verdict)
+                with self.assertRaisesRegex(pane_close.Preserve, 'worker activo/unknown'):
+                    self.reserve()
+        self.assertEqual(auto.read_ledger(self.paths)['attempts'], [])
+
+    def test_gone_probe_requires_current_captured_metadata_and_snapshot(self):
+        self.unknown_worker()
+        self.enabled()
+        self.request()
+        original = copy.deepcopy(self.operational)
+        for change in ('no_files', 'wrong_hash', 'new_generation', 'remote', 'stale_row', 'wrong_target'):
+            with self.subTest(change=change):
+                self.operational = copy.deepcopy(original)
+                (self.home/'state/worker.meta').write_text(original['files']['state/worker.meta']['text'])
+                if change == 'no_files':
+                    self.operational.pop('files')
+                elif change == 'wrong_hash':
+                    self.operational['files']['state/worker.meta']['sha256'] = 'wrong'
+                elif change == 'new_generation':
+                    (self.home/'state/worker.meta').write_text('spawn_gen=new\n')
+                elif change == 'remote':
+                    text = original['files']['state/worker.meta']['text']+'remote_host=elsewhere\n'
+                    (self.home/'state/worker.meta').write_text(text)
+                    self.operational['files']['state/worker.meta'] = dict(text=text, sha256=common.sha256_bytes(text.encode()))
+                elif change == 'stale_row':
+                    self.operational['snapshot']['tasks'][0]['current_state']['freshness'] = 'cached'
+                else:
+                    self.operational['snapshot']['tasks'][0]['endpoint']['target'] = 'different-window'
+                with self.assertRaisesRegex(pane_close.Preserve, 'worker activo/unknown'):
+                    self.reserve()
+        # Only the target mismatch reaches the classifier; its verdict is
+        # rejected because it refers to another endpoint than the fleet row.
+        self.assertEqual((self.home/'probes').read_text().splitlines(), ['probe'])
+        for generated in (None, common.iso(self.now-datetime.timedelta(seconds=61))):
+            self.operational = copy.deepcopy(original)
+            self.operational['snapshot']['generated'] = generated
+            with self.assertRaisesRegex(pane_close.Preserve, 'snapshot missing/stale'):
+                auto.safe_point(self.paths, self.record, self.notes, self.operational, self.now)
+
+    def test_probe_total_budget_is_bounded(self):
+        self.unknown_worker('timeout')
+        self.enabled()
+        self.request()
+        with mock.patch.object(auto, 'AGENT_PROBE_TOTAL_SECONDS', 0):
+            with self.assertRaisesRegex(pane_close.Preserve, 'worker activo/unknown'):
+                self.reserve()
+        self.assertFalse((self.home/'probes').exists())
+
+    def test_unknown_gone_with_stale_ack_is_parked(self):
+        self.unknown_worker()
+        self.enabled()
+        self.request()
+        key = 'auto-relay-'+auto.request_key(self.record)[:16]
+        (self.home/'state/worker.status').write_text('paused [key='+key+'] [at=1]: stale acknowledgement\n')
+        self.assertEqual(self.reserve()['parked_without_agent'][0]['id'], 'worker')
+
+    def test_unknown_with_an_exact_ack_does_not_invoke_probe(self):
+        self.unknown_worker()
+        self.enabled()
+        self.request()
+        key = 'auto-relay-'+auto.request_key(self.record)[:16]
+        (self.home/'state/worker.status').write_text(
+            'paused [key='+key+'] [at='+str(int(self.now.timestamp()))+']: reached\n')
+        with self.assertRaisesRegex(pane_close.Preserve, 'worker activo/unknown'):
+            self.reserve()
+        self.assertFalse((self.home/'probes').exists())
 
     def test_authority_rereads_after_configuration_check(self):
         loaded = SimpleNamespace(status='ok', settings=SimpleNamespace(value=lambda key: 'auto'))
@@ -184,6 +311,9 @@ class AutomaticSafety(unittest.TestCase):
         with self.assertRaisesRegex(pane_close.Preserve, 'acknowledged'):
             self.reserve()
         key = 'auto-relay-'+auto.request_key(self.record)[:16]
+        status.write_text('paused [key=auto-relay-older] [at='+str(int(self.now.timestamp()))+']: older safe point\n')
+        with self.assertRaisesRegex(pane_close.Preserve, 'worker has not acknowledged this safe point'):
+            self.reserve()
         status.write_text('paused [key='+key+'] [at='+str(int(self.now.timestamp()))+']: safe point reached\n')
         self.assertEqual(self.reserve()['state'], 'reserved')
 

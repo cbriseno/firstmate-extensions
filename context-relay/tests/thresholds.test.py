@@ -393,6 +393,7 @@ class ThresholdTests(unittest.TestCase):
                         captain_call_in_progress=False, landing_in_progress=False,
                         critical_operation_in_progress=False))
                 operational = dict(snapshot=dict(schema='fm-fleet-snapshot.v1', fm_home=str(self.home),
+                    generated=common.iso(),
                     main_inventory=dict(valid=True), tasks=[], backlog=dict(records=[])))
                 # A configured catalog window is never enough for automatic
                 # admission, including a known model. Observe the owner first.

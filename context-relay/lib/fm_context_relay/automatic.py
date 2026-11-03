@@ -12,8 +12,10 @@ import os
 from pathlib import Path
 import re
 import shlex
+import signal
 import sys
 import subprocess
+import time
 import uuid
 
 from . import common, config, pane_close
@@ -24,6 +26,9 @@ DEFAULT_LIMITS = dict(window_seconds=1800, daily_cap=4, min_work_seconds=300,
 HARD_DAILY_CAP = 24
 SUPPORTED_HARNESSES = {'codex': 'codex-cli 0.166.0', 'claude': '2.1.316 (Claude Code)'}
 SUPPORTED_HERDR = dict(version='0.9.3', protocol=22)
+SNAPSHOT_MAX_AGE_SECONDS = 60
+AGENT_PROBE_SECONDS = 5
+AGENT_PROBE_TOTAL_SECONDS = 10
 HELP = """Automatic relay control. The initial mode remains warn.
 authorize is the sole enable operation: durable operator words/reason, home,
 authority identity, code/dependency hashes and bounded limits. It changes only
@@ -309,6 +314,63 @@ def notice(paths, record, now=None):
                 'After retirement end the turn without more tools so the driver can observe Stop.')
 
 
+def parked_without_agent(paths, row, operational, deadline):
+    """Read the core classifier, never infer death from a failed presence read."""
+    task = row['id']
+    relative = 'state/'+task+'.meta'
+    captured = (operational.get('files') or {}).get(relative) or {}
+    text = captured.get('text')
+    meta = Path(paths.home)/relative
+    if not isinstance(text, str) or meta.is_symlink():
+        return None
+    data = text.encode('utf-8')
+    if captured.get('sha256') != common.sha256_bytes(data):
+        return None
+    # A remote route must never be interpreted against this home's backend.
+    if any(line.startswith('remote_host=') and line[12:] for line in text.splitlines()):
+        return None
+    remaining = min(AGENT_PROBE_SECONDS, deadline-time.monotonic())
+    if remaining <= 0:
+        return None
+    try:
+        if meta.read_bytes() != data:
+            return None
+        env = dict(os.environ, FM_HOME=paths.home, FM_ROOT_OVERRIDE=paths.home,
+                   FM_STATE_OVERRIDE=str(Path(paths.home)/'state'),
+                   FM_CONFIG_OVERRIDE=str(Path(paths.home)/'config'))
+        process = subprocess.Popen(['bash', '-c',
+            '. "$1/bin/fm-backend.sh" || exit 1; '
+            'fm_backend_validate_task_endpoint "$2" "$3" >/dev/null 2>&1 || exit 1; '
+            'printf "%s\\n" "$FM_BACKEND_VALIDATED_BACKEND" "$FM_BACKEND_VALIDATED_TARGET"; '
+            'fm_backend_agent_state "$FM_BACKEND_VALIDATED_BACKEND" "$FM_BACKEND_VALIDATED_TARGET"',
+            'fm-context-relay-probe', paths.home, str(meta), task],
+            cwd=paths.home, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, start_new_session=True)
+        try:
+            stdout, _ = process.communicate(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+            return None
+        if meta.is_symlink() or meta.read_bytes() != data or process.returncode != 0:
+            return None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    fields = stdout.splitlines()
+    if len(fields) != 3 or not all(fields) or fields[2] not in ('missing', 'dead'):
+        return None
+    if fields[0] != row.get('backend') or fields[1] != (row.get('endpoint') or {}).get('target'):
+        return None
+    status = (operational.get('files') or {}).get('state/'+task+'.status') or {}
+    lines = (status.get('text') or '').splitlines()
+    return dict(id=task, last_status_line=lines[-1] if lines else None,
+                reason='parked_without_agent', unresolved=True,
+                worker_liveness=dict(source='backend.agent_state', verdict=fields[2],
+                    observed_at=common.iso(), backend=fields[0], target=fields[1],
+                    metadata_sha256=captured['sha256'],
+                    spawn_gen=next((line[10:] for line in text.splitlines() if line.startswith('spawn_gen=')), None)))
+
+
 def safe_point(paths, record, notes, operational, now=None):
     """Fail closed on unsaved decisions, unknown workers, calls and landings.
 
@@ -338,23 +400,36 @@ def safe_point(paths, record, notes, operational, now=None):
     snapshot = operational.get('snapshot') or {}
     require(snapshot.get('schema') == 'fm-fleet-snapshot.v1' and snapshot.get('fm_home') == paths.home,
             'snapshot ajeno/unknown')
+    generated = common.parse_iso(snapshot.get('generated'))
+    require(generated is not None and 0 <= (now-generated).total_seconds() <= SNAPSHOT_MAX_AGE_SECONDS,
+            'snapshot missing/stale: safe point unverifiable')
     require((snapshot.get('main_inventory') or {}).get('valid') is True,
             'inventario incompleto: punto seguro no verificable')
     require(isinstance(snapshot.get('tasks'), list) and isinstance(snapshot.get('backlog'), dict),
             'snapshot missing tasks/backlog')
     expected_key = 'auto-relay-'+request_key(record)[:16]
+    probe_deadline = time.monotonic()+AGENT_PROBE_TOTAL_SECONDS
+    parked = []
     for row in snapshot['tasks']:
         state = (row.get('current_state') or {}).get('state')
         if state in ('done', 'failed'):
             continue
-        require(state == 'paused', 'worker activo/unknown: esperar pausa segura')
         task = row.get('id')
         require(isinstance(task, str) and common.SESSION_ID_RE.fullmatch(task), 'invalid worker ID')
         raw = common.read_bytes(str(Path(paths.home)/'state'/(task+'.status')))
         lines = (raw or b'').decode('utf-8', 'replace').splitlines()
         match = re.match(r'^paused \[key='+re.escape(expected_key)+r'\] \[at=(\d+)\]:', lines[-1]) if lines else None
         since = common.parse_iso((record.get('relay') or {}).get('pending_since'))
-        require(match and since is not None and int(match.group(1)) >= int(since.timestamp()),
+        acknowledged = match and since is not None and int(match.group(1)) >= int(since.timestamp())
+        if state == 'unknown' and not acknowledged:
+            current = row.get('current_state') or {}
+            item = parked_without_agent(paths, row, operational, probe_deadline) if (
+                current.get('freshness') == 'fresh' and current.get('observed_at') == snapshot['generated']) else None
+            if item:
+                parked.append(item)
+                continue
+        require(state == 'paused', 'worker activo/unknown: esperar pausa segura')
+        require(acknowledged,
                 'worker has not acknowledged this safe point: '+task)
     # Pending captain calls travel unresolved in the package. An answer in
     # progress is blocked by the explicit primary proof and the control claim
@@ -365,6 +440,7 @@ def safe_point(paths, record, notes, operational, now=None):
     auth = authority(paths)
     require(started is not None and (now-started).total_seconds() >= auth['limits']['min_work_seconds'],
             'minimum useful work/age unmet')
+    notes['parked_without_agent'] = parked
     return auth
 
 
@@ -386,6 +462,7 @@ def reserve(paths, record, notes, operational, now=None):
         attempt = dict(id=str(uuid.uuid4()), key=key, at=common.iso(now),
                        authorization=auth['id'], session_id=record['session_id'],
                        trigger=request['trigger'], state='reserved', accepted=False, recoveries=0)
+        attempt['parked_without_agent'] = notes['parked_without_agent']
         request['state'] = 'reserved'
         history.append(attempt)
         journal(paths, 'reserved', **attempt)
@@ -405,7 +482,7 @@ def update(paths, reservation, state, **fields):
         return item
 
 
-def verify_reservation(paths, reservation, record):
+def verify_reservation(paths, reservation, record, notes=None):
     auth = authority(paths)
     ledger = read_ledger(paths)
     matches = [a for a in ledger['attempts'] if a['id'] == reservation]
@@ -414,6 +491,8 @@ def verify_reservation(paths, reservation, record):
             and matches[0]['session_id'] == record['session_id'], 'automatic reservation belongs elsewhere or expired')
     request = ledger['requests'][matches[0]['key']]
     require(common.utcnow() <= common.parse_iso(request['deadline']), 'safe-point deadline expired')
+    if notes is not None:
+        notes['parked_without_agent'] = matches[0].get('parked_without_agent', [])
     return auth
 
 

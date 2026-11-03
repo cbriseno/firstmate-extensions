@@ -57,11 +57,16 @@ def verify(args, paths, directory, attempt):
             'new operator input; safe point must be prepared again')
     notes = assisted.load(directory/'notes.json')
     current = assisted.capture(home, notes['references'])
+    inherited = {item['id']: item['worker_liveness']['metadata_sha256']
+                 for item in notes.get('parked_without_agent', [])}
     authority = automatic.safe_point(paths, latest, notes, current)
+    require(all(inherited.get(item['id']) == item['worker_liveness']['metadata_sha256']
+                for item in notes['parked_without_agent']),
+            'parked task not inherited in package; prepare a new safe point')
     proof = dict(schema='fm-auto-preflight.v1', at=common.iso(), attempt=attempt['id'],
                  checkpoint_sha256=attempt['checkpoint_sha256'], owner=owner,
                  authorization=authority['id'], destination=target,
-                 operational=current, launcher=program)
+                 operational=current, parked_without_agent=notes['parked_without_agent'], launcher=program)
     automatic.write(directory/'automatic-preflight.json', proof)
     assisted.event(directory, 'automatic-preflight', checkpoint_sha256=attempt['checkpoint_sha256'])
     return proof
