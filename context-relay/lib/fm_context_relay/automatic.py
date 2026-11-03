@@ -18,7 +18,7 @@ import subprocess
 import time
 import uuid
 
-from . import common, config, pane_close
+from . import common, config, herdr_session, pane_close
 
 require = pane_close.require
 DEFAULT_LIMITS = dict(window_seconds=1800, daily_cap=4, min_work_seconds=300,
@@ -294,9 +294,11 @@ def notice(paths, record, now=None):
         argv = [cli, '--home', paths.home, 'relay', 'start', '--automatic', '--harness', record['harness'],
                 '--notes', notes_path]
         runtime = auth.get('runtime') or {}
-        selected_session = runtime.get('herdr_session') or os.environ.get('HERDR_SESSION')
-        if selected_session:
-            argv += ['--herdr-session', selected_session]
+        selected_session = runtime.get('herdr_session')
+        if selected_session is None:
+            selected_session = os.environ.get('HERDR_SESSION')
+        selected_session = herdr_session.normalize(selected_session)
+        argv += ['--herdr-session', selected_session]
         if runtime.get('herdr_lab_helper'):
             argv += ['--herdr-lab-helper', runtime['herdr_lab_helper']]
         return ('Automatic relay authorized: '+admission.describe(proof)+'. Trigger reached. Save decisions and pending operations, '
@@ -587,7 +589,10 @@ def run(args, paths):
             result = set_mode(paths, args.mode)
         elif args.auto_action == 'authorize':
             selected = {k: getattr(args, k) for k in DEFAULT_LIMITS if getattr(args, k) is not None}
-            runtime = {k: getattr(args, k) for k in ('herdr_session', 'herdr_lab_helper') if getattr(args, k)}
+            runtime = {k: getattr(args, k) for k in ('herdr_session', 'herdr_lab_helper')
+                       if getattr(args, k) is not None}
+            if 'herdr_session' in runtime:
+                runtime['herdr_session'] = herdr_session.normalize(runtime['herdr_session'])
             result = set_mode(paths, 'auto', args.captain_words, args.reason, selected, runtime)
         else:
             raise pane_close.Preserve('unknown automatic action')

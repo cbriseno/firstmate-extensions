@@ -15,7 +15,7 @@ import subprocess
 import sys
 import uuid
 
-from . import common, config, events, identity, pane_close, session, process_inspection as processes
+from . import common, config, events, herdr_session, identity, pane_close, session, process_inspection as processes
 
 HELP = """Local Linux/Herdr relay. Hooks request a safe point; they do not launch.
 relay start is the guided entrypoint (relay start --help).
@@ -121,13 +121,17 @@ def peers(home, harness, allowed=()):
 def versions(home, harness, backend):
     extension = Path(__file__).resolve().parents[2]
     files = list(Path(__file__).parent.glob('*.py')) + list((extension/'bin').glob('fm-context-relay*'))
+    herdr_status = backend.call('status', '--json')
+    for component in ('server', 'client'):
+        if isinstance(herdr_status.get(component), dict):
+            herdr_status[component]['session'] = herdr_session.normalize(herdr_status[component].get('session'))
     return dict(firstmate=command(['git', '-C', str(home), 'rev-parse', 'HEAD'], home).strip(),
                 extension_files={str(path.relative_to(extension)): digest(path) for path in sorted(files)},
                 core_files={name: digest(home/'bin'/name) for name in
                     ('fm-session-start.sh', 'fm-lock.sh', 'fm-lock-release.sh', 'fm-lock-release.py',
                      'fm-session-lock-lib.sh', 'fm-primary-scope-lib.sh')},
                 harness=command([harness, '--version'], home).strip(),
-                herdr=backend.call('status', '--json'))
+                herdr=herdr_status)
 
 
 def version_key(value):
@@ -267,6 +271,7 @@ def run(args, paths):
 
 
 def prepare(args, paths):
+    args.herdr_session = herdr_session.normalize(args.herdr_session)
     home = Path(paths.home)
     loaded = config.load(paths)
     mode = loaded.settings.value('relay_mode')
@@ -389,7 +394,8 @@ def advance(args, paths, directory, attempt):
         require(current['id'] == load(directory/'automatic-authorization.json')['id'],
                 'automatic authority changed; do not act')
     package = validate_package(directory, attempt, check_harness=args.action != 'abort')
-    require(args.herdr_session == attempt['herdr_session'] and args.herdr_lab_helper == attempt['helper'], 'attempt backend changed')
+    require(herdr_session.normalize(args.herdr_session) == herdr_session.normalize(attempt['herdr_session'])
+            and args.herdr_lab_helper == attempt['helper'], 'attempt backend changed')
     backend = pane_close.Backend(args)
     require(backend.incarnation() == package['backend'], 'backend incarnation changed')
     if args.action == 'abort':

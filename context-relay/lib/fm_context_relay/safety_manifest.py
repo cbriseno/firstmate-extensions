@@ -9,7 +9,7 @@ import subprocess
 
 from . import common
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 EXTENSION_FILES = (
     'lib/fm_context_relay_main.py',
     'lib/fm_context_relay/__init__.py',
@@ -17,7 +17,7 @@ EXTENSION_FILES = (
         'safety_manifest', 'common', 'identity', 'admission', 'measure',
         'session', 'hook', 'config', 'thresholds', 'automatic',
         'automatic_preflight', 'assisted', 'start', 'launch_once',
-        'pane_close', 'checkpoint', 'events', 'relay_notifications', 'cli',
+        'pane_close', 'herdr_session', 'checkpoint', 'events', 'relay_notifications', 'cli',
         'activation', 'install', 'intent', 'settings_preflight', 'process_inspection')),
     *('bin/fm-context-relay'+suffix for suffix in ('', '-hook', '-guard', '-statusline', '-shell')),
     'templates/successor-pane-close.txt',

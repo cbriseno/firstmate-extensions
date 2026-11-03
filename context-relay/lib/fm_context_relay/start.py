@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 
-from . import assisted as relay, automatic, automatic_preflight, common, config, pane_close, relay_notifications, session
+from . import assisted as relay, automatic, automatic_preflight, common, config, herdr_session, pane_close, relay_notifications, session
 
 HELP = """Guided entry: fm-context-relay relay start.
 The native outgoing owner reconciles operations and writes safe-point.json using
@@ -171,7 +171,9 @@ def start(args, paths):
     spawned = False
     try:
         require(not (args.abort and (args.confirm or args.confirmation)), '--abort cannot be combined with confirmation')
-        args.herdr_session = args.herdr_session or os.environ.get('HERDR_SESSION')
+        if args.herdr_session is None:
+            args.herdr_session = os.environ.get('HERDR_SESSION')
+        args.herdr_session = herdr_session.normalize(args.herdr_session)
         with common.FileLock(str(Path(paths.state_dir)/'start.lock')):
             active = Path(paths.state_dir)/'active.json'
             if active.exists():
@@ -319,7 +321,7 @@ def drive(args, paths):
                 return until(checked, reason, seconds)
             enabled()
             package = relay.validate_package(directory, attempt)
-            require(attempt['home'] == paths.home and args.herdr_session == attempt['herdr_session']
+            require(attempt['home'] == paths.home and herdr_session.normalize(args.herdr_session) == herdr_session.normalize(attempt['herdr_session'])
                     and args.herdr_lab_helper == attempt['helper'], 'driver belongs to another home/backend')
             relay.confirmation(directory, attempt)
             backend = pane_close.Backend(args)

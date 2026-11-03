@@ -1,0 +1,1 @@
+{"server":{"status":"running","running":true,"version":"0.9.0","protocol":22,"compatible":true,"endpoint_compatible":true,"socket":"/synthetic/herdr.sock","session":null,"restart_needed":false},"client":{"version":"0.9.3","protocol":22,"compatible":true,"endpoint_compatible":true,"session":null}}

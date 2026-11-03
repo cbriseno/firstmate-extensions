@@ -11,7 +11,7 @@ from pathlib import Path
 import shlex
 import subprocess
 
-from . import assisted, automatic, common, pane_close
+from . import assisted, automatic, common, herdr_session, pane_close
 
 require = pane_close.require
 
@@ -108,7 +108,8 @@ def execute(args, paths):
             assisted.confirmation(directory, attempt)
             require(attempt['state'] in ('launch-intent', 'launch-uncertain', 'launched',
                                         'recovery-intent', 'recovery-uncertain', 'recovery-launched'), 'execution out of phase')
-            require(args.herdr_session == attempt['herdr_session'] and args.herdr_lab_helper == attempt['helper'],
+            require(herdr_session.normalize(args.herdr_session) == herdr_session.normalize(attempt['herdr_session'])
+                    and args.herdr_lab_helper == attempt['helper'],
                     'backend ajeno')
             # empty_shell cannot hold while this very launcher is foreground.
             # Kernel/native ownership and package checks are still repeated.

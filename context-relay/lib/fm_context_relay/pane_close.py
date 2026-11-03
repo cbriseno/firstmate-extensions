@@ -17,7 +17,7 @@ import stat
 import subprocess
 import termios
 
-from . import common, identity as native_identity, process_inspection as processes
+from . import common, herdr_session, identity as native_identity, process_inspection as processes
 
 HELP = """Post-acceptance finalizer: local Herdr; unknown safety evidence preserves the pane.
 This command does not transfer authority, start sessions, signal or acquire locks.
@@ -82,7 +82,7 @@ def input_counters(shell):
 
 class Backend:
     def __init__(self, args):
-        self.session = args.herdr_session
+        self.session = herdr_session.normalize(args.herdr_session)
         self.helper = args.herdr_lab_helper
         require(os.environ.get("HERDR_ENV") == "1", "caller must be inside Herdr")
         require(self.session and not self.session.startswith("-"), "explicit Herdr session required")
@@ -116,12 +116,17 @@ class Backend:
 
     def incarnation(self):
         server = self.call("status", "--json").get("server", {})
-        require(server.get("running") is True and server.get("session") == self.session
+        try:
+            server_session = herdr_session.normalize(server.get("session"))
+        except ValueError as exc:
+            raise Preserve(str(exc)) from exc
+        require(server.get("running") is True and server_session == self.session
                 and server.get("compatible") is True, "servidor Herdr no coincide/compatible")
         socket = server.get("socket")
         require(isinstance(socket, str) and os.path.isabs(socket), "socket Herdr unknown")
         info = os.stat(socket)
         require(stat.S_ISSOCK(info.st_mode), "Herdr endpoint is not a socket")
+        self.socket = socket
         return dict(session=self.session, socket=socket, device=info.st_dev, inode=info.st_ino,
                     ctime_ns=info.st_ctime_ns, boot=processes.boot_id())
 
@@ -158,8 +163,18 @@ def current_owner(home, harness, backend, pane):
 fm_primary_scope_matches "$1" "$1/state" && fm_harness_pid_alive "$2"
 ''', "_", str(home), str(pid)], capture_output=True, timeout=15)
     require(check.returncode == 0, "native scope/lock owner does not corroborate ownership")
-    require(os.environ.get("HERDR_PANE_ID") == pane and os.environ.get("HERDR_SESSION") == backend.session,
-            "caller is not the expected owner pane/session")
+    require(backend.incarnation().get("session") == backend.session, "Herdr server session changed")
+    require(os.environ.get("HERDR_PANE_ID") == pane, "caller is not the expected owner pane")
+    require(os.environ.get("HERDR_SOCKET_PATH") == backend.socket, "caller socket does not match Herdr server")
+    caller_session = os.environ.get("HERDR_SESSION")
+    if caller_session is None:
+        require(backend.session == "default", "explicit Herdr session required")
+    else:
+        try:
+            caller_session = herdr_session.normalize(caller_session)
+        except ValueError as exc:
+            raise Preserve(str(exc)) from exc
+        require(caller_session == backend.session, "caller session does not match")
     terminal = backend.terminal(pane)
     native = identity(pid)
     require(native["tty"] != 0 and native["tty"] == terminal["shell"]["tty"]
