@@ -1,5 +1,7 @@
 # Context relay
 
+Anonymous diagnostic event fields and export are documented in [Diagnostics](../diagnostics/README.md).
+
 An optional continuity extension for Firstmate and Herdr. It observes supported
 native transcripts, records context pressure and requests a safe point. `warn` is
 the default; hooks never obtain authority by measuring pressure. `assisted` needs

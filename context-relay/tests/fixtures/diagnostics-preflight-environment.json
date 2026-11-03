@@ -1,0 +1,11 @@
+{
+  "schema": "fm-context-relay-preflight-environment.v1",
+  "environment": {
+    "HOME": "<temporary-home>",
+    "FM_HOME": "<temporary-home>",
+    "FM_DIAGNOSTICS_HOME": "<temporary-diagnostics>",
+    "PATH": ["<synthetic-herdr-bin>", "/usr/bin", "/bin"]
+  },
+  "herdr_status_fixture": "herdr-status-default.json",
+  "synthetic": true
+}

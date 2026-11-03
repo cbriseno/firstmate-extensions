@@ -15,7 +15,7 @@ import subprocess
 import sys
 import uuid
 
-from . import common, config, events, herdr_session, identity, pane_close, session, process_inspection as processes
+from . import common, config, events, herdr_session, identity, pane_close, session, process_inspection as processes, diagnostics
 
 HELP = """Local Linux/Herdr relay. Hooks request a safe point; they do not launch.
 relay start is the guided entrypoint (relay start --help).
@@ -207,6 +207,14 @@ def validate_package(directory, attempt, check_harness=True):
 def event(directory, kind, **detail):
     common.append_line(str(directory/'events.jsonl'), json.dumps(dict(at=common.iso(), kind=kind, **detail)))
     events.emit(directory.parents[3], kind, directory.name)
+    from . import automatic
+    try:
+        revision = automatic.code_fingerprint(common.Paths(str(directory.parents[3])))['manifest_hash'][:12]
+    except (OSError, ValueError):
+        revision = 'unknown'
+    diagnostics.emit('extensiones', 'relay.attempt', result='rejected' if kind == 'refused' else 'attempt',
+                     reason='error' if kind == 'refused' else 'ok', count=1,
+                     _version='0.1.0', _revision=revision)
 
 
 def save(directory, attempt, state):

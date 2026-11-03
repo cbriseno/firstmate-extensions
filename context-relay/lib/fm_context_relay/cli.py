@@ -349,6 +349,19 @@ def cmd_install(args, paths):
     return install.install(paths.home, args.harness, dry_run=args.dry_run, force=args.force, codex_home=args.codex_home)
 
 
+def cmd_preflight(args, paths):
+    from . import settings_preflight
+    session_files = sorted(Path(paths.sessions).glob('*.json'), key=lambda path: path.stat().st_mtime, reverse=True)
+    latest = next((common.read_json(str(path)) for path in session_files
+                   if (common.read_json(str(path)) or {}).get('schema') == 'fm-context-relay-session.v1'), {})
+    harness = args.harness or latest.get('harness') or 'claude'
+    result = settings_preflight.view(paths, harness, args.codex_home)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    for item in result['reasons']:
+        print('blocker: %s: %s' % (item['code'], item['message']), file=sys.stderr)
+    return 0 if result['can_authorize'] else 1
+
+
 def cmd_uninstall(args, paths):
     from . import install
     return install.uninstall(paths.home, args.harness, dry_run=args.dry_run, codex_home=args.codex_home)
@@ -378,7 +391,13 @@ def build_parser():
     p = sub.add_parser("validate", help="validate schema and thresholds against context window")
     p.add_argument("--file", help="validate this file instead of the home configuration")
     p.add_argument("--json", action="store_true")
+
     p.set_defaults(func=cmd_validate)
+
+    p = sub.add_parser("preflight", help="read-only automatic relay readiness checks")
+    p.add_argument("--harness", choices=("claude", "codex"), help="defaults to claude")
+    p.add_argument("--codex-home")
+    p.set_defaults(func=cmd_preflight)
 
     p = sub.add_parser("set", help="change one setting (explicit operator approval required)", description=SET_HELP,
                        formatter_class=argparse.RawDescriptionHelpFormatter)

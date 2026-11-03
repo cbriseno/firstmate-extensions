@@ -588,6 +588,16 @@ def run(args, paths):
         elif args.auto_action == 'off':
             result = set_mode(paths, args.mode)
         elif args.auto_action == 'authorize':
+            from . import settings_preflight
+            session_files = sorted(Path(paths.sessions).glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True)
+            latest = next((common.read_json(str(path)) for path in session_files
+                           if (common.read_json(str(path)) or {}).get('schema') == 'fm-context-relay-session.v1'), {})
+            selected_harness = latest.get('harness') or ('codex' if args.herdr_session and args.herdr_session.startswith('codex:') else 'claude')
+            preflight = settings_preflight.view(paths, selected_harness)
+            if not preflight['can_authorize']:
+                blockers = '; '.join(item['code'] + ': ' + item['message'] for item in preflight['reasons']
+                                     if item not in preflight['authorization_reasons'])
+                raise pane_close.Preserve('preflight failed; auto authorization refused: ' + blockers)
             selected = {k: getattr(args, k) for k in DEFAULT_LIMITS if getattr(args, k) is not None}
             runtime = {k: getattr(args, k) for k in ('herdr_session', 'herdr_lab_helper')
                        if getattr(args, k) is not None}
