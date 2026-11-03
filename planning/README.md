@@ -2,8 +2,7 @@
 
 For UI integrations, use the [versioned settings contract](settings-contract.md).
 
-Planning is independent of the context relay. It uses scoped Firstmate skills and
-private configuration, without changing Firstmate's tracked files or dispatcher.
+Planning uses scoped Firstmate skills and private configuration, without changing Firstmate's tracked files or dispatcher.
 A primary must load and follow `firstmate-planning`; this is semantic routing, not
 a deterministic dispatch hook. Verify the durable task brief before claiming use.
 Firstmate without this module retains native planning. Installing skills alone does

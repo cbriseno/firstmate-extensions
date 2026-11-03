@@ -103,7 +103,7 @@ if __name__ == '__main__':
             shutil.copytree(SOURCE, source)
             runtime = source / 'firstmate-planning/runtime'
             package = SOURCE.parents[1]
-            for part in ('bin', 'clean-room', 'planning/lib', 'planning/core', 'vendor', 'context-relay'):
+            for part in ('bin', 'clean-room', 'planning/lib', 'planning/core', 'vendor'):
                 shutil.copytree(package / part, runtime / part, ignore=shutil.ignore_patterns('__pycache__', 'tests'))
             shutil.copyfile(package / 'planning/pin.json', runtime / 'planning/pin.json')
             for part in ('LICENSE', 'NOTICE', 'compatibility.json'):

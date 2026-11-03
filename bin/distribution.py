@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'planning/lib'))
 from common import PlanningError
 VERSION = '0.1.0'
-PARTS = ('bin', 'clean-room', 'planning', 'context-relay', 'vendor', 'compatibility.json', 'LICENSE', 'NOTICE')
+PARTS = ('bin', 'clean-room', 'planning', 'context-relay-lite', 'vendor', 'compatibility.json', 'LICENSE', 'NOTICE')
 
 
 def runtime():
@@ -38,12 +38,10 @@ def run(*args, accepted=(0,)):
 def home_problems(home):
     if home is None:
         return ['Firstmate unavailable: pass --home to a compatible Firstmate checkout']
-    sys.path.insert(0, str(ROOT / 'context-relay/lib'))
-    from fm_context_relay.install import check_home
-    problems = check_home(str(home))
-    for name in ('fm-lock-release.sh', 'fm-lock-release.py'):
+    problems = []
+    for name in ('fm-primary-scope-lib.sh', 'fm-session-lock-lib.sh'):
         if not (home / 'bin' / name).is_file():
-            problems.append(f'Firstmate incompatible: missing bin/{name}; lock-release primitive required')
+            problems.append(f'Firstmate incompatible: missing bin/{name}')
     return problems
 
 
@@ -65,8 +63,6 @@ def doctor(args):
     sys.path.insert(0, str(ROOT / 'planning/lib'))
     from core import bundle
     bundle()
-    sys.path.insert(0, str(ROOT / 'context-relay/lib'))
-    from fm_context_relay import process_inspection as processes
     problems = home_problems(args.home)
     if shutil.which('herdr') is None:
         problems.append('Herdr unavailable: relay requires Herdr 0.9.3/protocol 22; no relay can start')
@@ -110,14 +106,13 @@ def doctor(args):
         tools[name] = {'status': 'available' if shutil.which(name) else 'missing',
                        'version': tool_version(name), 'category': 'optional by feature',
                        'required_for': 'native provider hooks and live relay'}
-    relay_available = not problems and processes.safety_evidence_available()
-    relay_diagnostic = None if processes.safety_evidence_available() else dict(
-        code=processes.RELAY_UNAVAILABLE_CODE, message=processes.RELAY_UNAVAILABLE_MESSAGE)
+    relay_available = not problems and sys.platform == 'linux'
+    relay_diagnostic = None if sys.platform == 'linux' else {'code': 'unsupported_platform', 'message': 'Relay requires Linux'}
     print(json.dumps({'ok': not args.require_relay or relay_available, 'version': VERSION,
                       'vendor_verified': True, 'installed': installed,
                       'planning': 'available', 'relay': 'prerequisites present' if relay_available else 'unavailable',
                       'relay_diagnostic': relay_diagnostic,
-                      'diagnostics': problems, 'platform': platform, 'warnings': warnings, 'tools': tools, 'automatic_default': 'off (warn)',
+                      'diagnostics': problems, 'platform': platform, 'warnings': warnings, 'tools': tools, 'automatic_default': 'disabled',
                       'activation': 'unverified; native hook trust and skill discovery require separate checks',
                       'language': args.language}, indent=2))
     return 2 if args.require_relay and not relay_available else 0
@@ -165,10 +160,7 @@ def installation(args):
     preferences = load(planning_state())
     preferences['language'] = args.language
     save(planning_state(), preferences)
-    if args.home:
-        run(dest / 'context-relay/bin/fm-context-relay', '--home', args.home, 'install', '--harness', args.harness,
-            accepted=(0, 3))
-    print('Installed. Installation never enables automatic relay; existing settings are retained. Review native hook trust before activation.')
+    print('Installed planning and relay-lite. Configure the Claude hook and enable relay-lite separately.')
     return doctor(args)
 
 
@@ -182,12 +174,7 @@ def uninstallation(args):
         raise RuntimeError('Installed runtime changed; refusing to remove modified files')
     if args.home and str(args.home) != record.get('home'):
         raise RuntimeError('--home does not match the installation record')
-    if record.get('home') and (Path(record['home']) / 'state/context-relay/active.json').exists():
-        raise RuntimeError('Relay attempt remains active; reach a verified safe terminal state before uninstalling')
-    # Preflight skills before mutating either hooks or skills.
     run(sys.executable, dest / 'planning/bin/install-skills', 'uninstall', '--dry-run')
-    if record.get('home'):
-        run(dest / 'context-relay/bin/fm-context-relay', '--home', record['home'], 'uninstall', '--harness', record['harness'])
     run(sys.executable, dest / 'planning/bin/install-skills', 'uninstall')
     shutil.rmtree(dest)
     print('Uninstalled managed hooks, skills and runtime. Private configuration, history and project artifacts are retained.')
@@ -198,19 +185,6 @@ def entry():
     if sys.argv[1:] == ['--version']:
         print('Firstmate Extensions ' + VERSION)
         return 0
-    if sys.argv[1:2] == ['relay']:
-        rest = sys.argv[2:]
-        options = argparse.ArgumentParser(add_help=False)
-        options.add_argument('--home', default=os.environ.get('FM_HOME'))
-        relay_args, _ = options.parse_known_args(rest)
-        selected_home = Path(relay_args.home).expanduser().resolve() if relay_args.home else None
-        problems = home_problems(selected_home)
-        if problems:
-            print('Firstmate home unavailable or incompatible: ' + '; '.join(problems), file=sys.stderr)
-            return 2
-        if rest[:1] == ['status']:
-            rest = rest[1:] + ['auto', 'status']
-        os.execv(str(ROOT / 'context-relay/bin/fm-context-relay'), [str(ROOT / 'context-relay/bin/fm-context-relay'), *rest])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('install', 'uninstall', 'doctor'))
     parser.add_argument('--home', type=lambda p: Path(p).expanduser().resolve(), default=os.environ.get('FM_HOME'))

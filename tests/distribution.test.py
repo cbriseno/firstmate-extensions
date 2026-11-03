@@ -61,21 +61,6 @@ class DistributionTest(unittest.TestCase):
         self.run_cli('install')
         self.run_cli('uninstall')
 
-    def test_active_relay_preserves_installed_files(self):
-        self.run_cli('install')
-        firstmate = self.root / 'firstmate'
-        active = firstmate / 'state/context-relay/active.json'
-        active.parent.mkdir(parents=True)
-        active.write_text('{}')
-        receipt = self.installed / 'installation.json'
-        record = json.loads(receipt.read_text())
-        record['home'] = str(firstmate)
-        receipt.write_text(json.dumps(record))
-        result = self.run_cli('uninstall', code=2)
-        self.assertIn('active', result.stderr)
-        self.assertTrue(self.installed.exists())
-        self.assertTrue((self.home / '.codex/skills/firstmate-planning/SKILL.md').exists())
-
     def test_modified_runtime_refuses_removal(self):
         self.run_cli('install')
         (self.installed / 'NOTICE').write_text('Modified by user\n')
@@ -88,8 +73,6 @@ class DistributionTest(unittest.TestCase):
         result = self.run_cli('install', '--home', str(invalid), code=2)
         self.assertIn('Firstmate', result.stderr)
         self.assertFalse(self.installed.exists())
-        result = self.run_cli('relay', 'status', code=2)
-        self.assertIn('Firstmate home unavailable', result.stderr)
 
 
 class DoctorPlatformTest(unittest.TestCase):

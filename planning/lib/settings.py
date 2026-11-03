@@ -1,24 +1,17 @@
-"""Versioned JSON settings facade over the planning and relay policy owners."""
+"""Versioned JSON settings facade over the planning policy owner."""
 import base64
 import argparse
 import json
 import os
 from pathlib import Path
-import sys
+import tempfile
 import uuid
 
-from common import PlanningError, ROOT, atomic, home_root, home_state, installation, locked, read_json, regular, sha
+from common import PlanningError, atomic, home_root, home_state, installation, locked, read_json, regular, sha
 from config import home_config, load
 from project_registry import identify, registry
 from resolver import resolve
 import task_preferences
-
-def relay_modules():
-    # Installed planning-only skills retain their independent runtime.
-    global automatic, relay_common, relay_config, pane_close, thresholds, preflight
-    sys.path.insert(0, str(ROOT / 'context-relay/lib'))
-    from fm_context_relay import automatic, common as relay_common, config as relay_config, pane_close, thresholds
-    from fm_context_relay.settings_preflight import view as preflight
 
 
 class Rejected(Exception):
@@ -29,31 +22,18 @@ class Rejected(Exception):
 def add_parser(subs):
     parent = subs.add_parser('settings', help='versioned JSON settings contract')
     actions = parent.add_subparsers(dest='action', required=True)
-    for action in ('status', 'preflight', 'set', 'authorize', 'off', 'undo'):
+    for action in ('status', 'set', 'undo'):
         cmd = actions.add_parser(action)
         cmd.add_argument('--home', default=os.environ.get('FM_HOME'), required=not bool(os.environ.get('FM_HOME')))
         cmd.add_argument('--project')
         cmd.add_argument('--task-id')
-        if action == 'preflight':
-            cmd.add_argument('--harness', required=True)
-            cmd.add_argument('--codex-home')
-        if action in ('set', 'authorize', 'off', 'undo'):
+        if action in ('set', 'undo'):
             cmd.add_argument('--request-id', required=True)
             cmd.add_argument('--expected-revision', required=True)
-        if action in ('set', 'authorize', 'off'):
-            cmd.add_argument('--captain-words')
-            cmd.add_argument('--reason')
         if action == 'set':
-            cmd.add_argument('--target', choices=('planning', 'relay-mode', 'threshold'), required=True)
+            cmd.add_argument('--target', choices=('planning',), required=True)
             cmd.add_argument('--scope', choices=('task', 'project', 'home', 'installation'))
-            cmd.add_argument('--mode', choices=('inherit', 'native', 'speckit', 'warn', 'assisted'))
-            cmd.add_argument('--harness', choices=('claude', 'codex'))
-            cmd.add_argument('--spec')
-        if action == 'authorize':
-            for key in ('window_seconds', 'daily_cap', 'min_work_seconds', 'safe_wait_seconds'):
-                cmd.add_argument('--'+key.replace('_', '-'), type=int)
-        if action == 'off':
-            cmd.add_argument('--mode', choices=('warn', 'assisted'), default='warn')
+            cmd.add_argument('--mode', choices=('inherit', 'native', 'speckit'))
         if action == 'undo':
             cmd.add_argument('--undo-token', required=True)
 
@@ -84,11 +64,8 @@ def identity(args):
 
 def revision(ident, value):
     home = Path(ident['home'])
-    paths = relay_common.Paths(str(home))
     files = [installation()/'config.json', installation()/'registry.json',
-             home_state(home)/'config.json', home/'config/planning-mode', task_preferences.path_for(home),
-             Path(paths.config), Path(thresholds.path_for(paths)),
-             automatic.locations(paths)['control'], automatic.locations(paths)['kill']]
+             home_state(home)/'config.json', home/'config/planning-mode', task_preferences.path_for(home)]
     contents = {}
     for path in files:
         regular(path)
@@ -110,25 +87,9 @@ def status(ident, value):
                         installation_mode=inst['projects'].get(key, 'inherit') if project else None),
         'task': dict(identity=dict(home=ident['home'], project=ident['project'], task_id=ident['task_id'])
                      if ident['task_id'] else None, mode=selected)}
-    paths = relay_common.Paths(str(home))
-    loaded = relay_config.load(paths)
-    auto = automatic.view(paths)
-    policies, sources = thresholds.resolve(loaded.thresholds['entries'], loaded.settings.value('relay_policy'))
-    relay = dict(mode=auto['mode'], automatic_enabled=auto['auto_enabled'],
-                 errors=loaded.errors, thresholds={h: dict(text=display_spec(policies[h]) if h in policies else None,
-                 parsed=policies.get(h), source=sources[h]) for h in ('claude', 'codex')})
-    return dict(schema='fm-extension-settings.v1', ok=not loaded.errors, identity=ident,
-                revision=revision(ident, value), relay=relay,
+    return dict(schema='fm-extension-settings.v1', ok=True, identity=ident,
+                revision=revision(ident, value),
                 planning=dict(scopes=scopes, resolution=resolve(home, str(project), obj, task_id=ident['task_id']) if project else None))
-
-
-def display_spec(policy):
-    text = thresholds.format_spec(policy)
-    tokens = policy.get('min_context_tokens')
-    if tokens:
-        unit, divisor = ('M', 1000000) if tokens % 1000000 == 0 else ('K', 1000) if tokens % 1000 == 0 else ('', 1)
-        text = text.replace('umbral:%d' % tokens, 'umbral:%d%s' % (tokens // divisor, unit))
-    return text
 
 
 def snapshot(files):
@@ -146,15 +107,21 @@ def restore(files):
         if content is None:
             path.unlink(missing_ok=True)
         else:
-            relay_common.atomic_write_bytes(str(path), base64.b64decode(content))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            mode = path.stat().st_mode & 0o7777 if path.exists() else 0o644
+            fd, temporary = tempfile.mkstemp(prefix='.planning-', dir=path.parent)
+            try:
+                with os.fdopen(fd, 'wb') as stream:
+                    stream.write(base64.b64decode(content))
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.chmod(temporary, mode)
+                os.replace(temporary, path)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
 
 
-def require_words(args):
-    if not args.captain_words or not args.captain_words.strip() or not args.reason or not args.reason.strip():
-        raise Rejected('authorization_required', 'Explicit captain words and reason are required')
-
-
-def mutate(args, ident, value, paths):
+def mutate(args, ident, value):
     home = Path(ident['home'])
     if args.action == 'undo':
         undo = value['undos'].get(args.undo_token)
@@ -168,25 +135,6 @@ def mutate(args, ident, value, paths):
             raise
         undo['used'] = True
         return dict(restored=True), None
-    if args.action == 'authorize':
-        require_words(args)
-        selected = {k: getattr(args, k) for k in automatic.DEFAULT_LIMITS if getattr(args, k) is not None}
-        return automatic.set_mode(paths, 'auto', args.captain_words, args.reason, selected, config_locked=True), None
-    if args.action == 'off' or args.target == 'relay-mode':
-        require_words(args)
-        if args.mode not in ('warn', 'assisted'):
-            raise Rejected('invalid_request', 'Relay mode must be warn or assisted; use authorize for auto')
-        # Audit both directions with the captain's exact words, including OFF.
-        automatic.journal(paths, 'settings-mode-request', captain_words=args.captain_words,
-                          reason=args.reason, request_id=args.request_id, mode=args.mode)
-        return automatic.set_mode(paths, args.mode, config_locked=True), None
-    if args.target == 'threshold':
-        if not args.harness or not args.spec:
-            raise Rejected('invalid_request', 'Threshold requires --harness and --spec')
-        path = Path(thresholds.path_for(paths))
-        before = snapshot([path])
-        thresholds.change(paths, 'set', args.spec, args.harness, config_locked=True, request_id=args.request_id)
-        return dict(harness=args.harness, parsed=relay_config.load(paths).settings.value('relay_policy')[args.harness]), before
     if args.target == 'planning':
         if args.scope is None or args.mode not in ('native', 'speckit', 'inherit'):
             raise Rejected('invalid_request', 'Planning requires a scope and native, speckit or inherit mode')
@@ -214,10 +162,8 @@ def receipt(args, ident, current, code, message=None):
 
 
 def transaction(args, ident):
-    paths = relay_common.Paths(ident['home'])
-    regular(Path(paths.config_lock))
     # Shared planning lock protects both scoped preferences and this journal.
-    with locked(installation()), relay_common.FileLock(paths.config_lock, timeout=5):
+    with locked(installation()):
         value = state()
         current = revision(ident, value)
         payload = vars(args)
@@ -235,7 +181,7 @@ def transaction(args, ident):
             result = receipt(args, ident, current, 'stale_revision', 'Settings changed; read status and submit a new request ID')
         else:
             try:
-                applied, before = mutate(args, ident, value, paths)
+                applied, before = mutate(args, ident, value)
                 value['generation'] += 1
                 result = receipt(args, ident, revision(ident, value), 'applied')
                 result['result'] = applied
@@ -245,7 +191,7 @@ def transaction(args, ident):
                     value['undos'][token] = dict(identity=ident, revision=result['revision'], files=before, used=False)
             except Rejected as exc:
                 result = receipt(args, ident, revision(ident, value), exc.code, exc.message)
-            except (PlanningError, pane_close.Preserve, ValueError) as exc:
+            except (PlanningError, ValueError) as exc:
                 result = receipt(args, ident, revision(ident, value), 'invalid_configuration', str(exc))
             except OSError as exc:
                 result = receipt(args, ident, revision(ident, value), 'write_failed', str(exc))
@@ -255,19 +201,16 @@ def transaction(args, ident):
 
 
 def run(args):
-    relay_modules()
     ident = None
     try:
         ident = identity(args)
         if args.action == 'status':
             result = status(ident, state())
-        elif args.action == 'preflight':
-            result = preflight(relay_common.Paths(ident['home']), args.harness, args.codex_home)
         else:
             result = transaction(args, ident)
-    except (PlanningError, pane_close.Preserve, OSError, ValueError, relay_common.LockTimeout) as exc:
-        code = 'busy' if isinstance(exc, relay_common.LockTimeout) or 'busy' in str(exc) else 'invalid_configuration'
-        if args.action not in ('status', 'preflight'):
+    except (PlanningError, OSError, ValueError) as exc:
+        code = 'busy' if 'busy' in str(exc) else 'invalid_configuration'
+        if args.action != 'status':
             result = receipt(args, ident, None, code, str(exc))
         else:
             result = dict(schema='fm-extension-settings-error.v1', ok=False, code=code, message=str(exc))

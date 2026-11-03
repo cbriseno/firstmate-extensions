@@ -52,7 +52,6 @@ class Installation(unittest.TestCase):
             shutil.copytree(ROOT, package / 'planning')
             shutil.copytree(ROOT.parent / 'vendor', package / 'vendor')
             shutil.copytree(ROOT.parent / 'clean-room', package / 'clean-room')
-            shutil.copytree(ROOT.parent / 'context-relay', package / 'context-relay')
             for part in ('LICENSE', 'NOTICE', 'compatibility.json'):
                 shutil.copyfile(ROOT.parent / part, package / part)
             user = base / 'user'

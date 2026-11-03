@@ -332,7 +332,7 @@ def compaction_counting(harness, state):
             and not state.get("codex_invalid")
             and set(protocol["windows"]) == set(state.get("compaction_ids") or [])):
         return ("verified", "codex-tui 0.166.0 %s: paginated/window-chain" % state["source"])
-    detail = state.get("originator") or "unknown"
+    detail = state.get("originator") or "desconocido"
     return ("unverified", "codex %s" % detail)
 
 

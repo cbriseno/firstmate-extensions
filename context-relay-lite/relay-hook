@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Claude Stop/PostToolUse hook: relay-hook FIRSTMATE_HOME. Always silent to Claude.
+set -u
+home=${1:?firstmate home required}
+[ -z "${FM_TASK_ID:-}" ] && [ -f "$home/config/relay-lite.json" ] || exit 0
+# shellcheck source=/dev/null
+. "$home/bin/fm-primary-scope-lib.sh" 2>/dev/null || exit 0
+# shellcheck source=/dev/null
+. "$home/bin/fm-session-lock-lib.sh" 2>/dev/null || exit 0
+fm_primary_scope_matches "$home" "$home/state" >/dev/null 2>&1 || exit 0
+fm_session_lock_owned_by_self "$home/state" >/dev/null 2>&1 || exit 0
+here=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
+python3 -B "$here/relay.py" --home "$home" >/dev/null 2>&1 || true

@@ -9,8 +9,7 @@ root = Path(__file__).resolve().parents[1]
 if not os.environ.get('FIRSTMATE_ROOT'):
     sys.exit('Set FIRSTMATE_ROOT to a compatible Firstmate checkout for relay library tests')
 suites = [root / 'tests/distribution.test.py']
-suites += sorted((root / 'context-relay/tests').glob('*.test.py'))
-suites += sorted((root / 'context-relay/tests').glob('*.test.sh'))
+suites += sorted((root / 'context-relay-lite/tests').glob('*.test.py'))
 suites += sorted((root / 'planning/tests').glob('*.test.py'))
 failed = []
 for suite in suites:
