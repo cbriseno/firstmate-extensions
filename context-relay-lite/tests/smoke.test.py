@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """One quick executable smoke: measurement dry-run cannot write or call Herdr."""
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -8,9 +9,24 @@ import subprocess
 import sys
 import tempfile
 import time
+from unittest.mock import patch
 
 controller = Path(__file__).resolve().parents[1] / 'relay.py'
 started = time.monotonic()
+spec = importlib.util.spec_from_file_location('relay', controller)
+relay = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(relay)
+for tty in ('ttys001', 'pts/1'):  # macOS and Linux ps output
+    row = f'  42 Wed Nov  4 10:03:41 2026 {tty} 123 S+ claude --model opus'
+    with patch.object(relay.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, row, '')):
+        info = relay.process_info(456)
+        assert info == {'pid': 456, 'ppid': 42, 'start': 'Wed Nov 4 10:03:41 2026',
+                        'tty': tty, 'session': '123', 'args': 'claude --model opus'}
+        assert relay.process(456)['tty'] == tty
+with patch.object(relay.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0,
+        '42 Wed Nov 4 10:03:41 2026 ?? 123 Z <defunct>', '')):
+    assert relay.process(456) is None
+assert relay.process(os.getpid()) is not None and relay.ancestor(os.getppid())
 compile(controller.read_text(), str(controller), 'exec')
 with tempfile.TemporaryDirectory(prefix='relay-lite-smoke-') as temporary:
     home = Path(temporary)

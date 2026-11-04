@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Claude/Linux/Herdr local relay; installation alone grants no consent.
+"""Claude/Herdr local relay; installation alone grants no consent.
 
 Hook: relay-hook FIRSTMATE_HOME (Claude Stop/PostToolUse JSON on stdin).
 Check: relay.py --home FIRSTMATE_HOME --dry-run < hook-payload.json
@@ -50,12 +50,20 @@ def put(path, value):
     temporary.replace(path)
 
 
-def process(pid):
-    try:
-        row = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
-        return {'pid': pid, 'start': row[19], 'tty': row[4], 'session': row[3]} if row[0] != 'Z' else None
-    except FileNotFoundError:
+def process_info(pid):
+    result = subprocess.run(['ps', '-o', 'ppid=', '-o', 'lstart=', '-o', 'tty=',
+                             '-o', 'sess=', '-o', 'stat=', '-o', 'args=', '-p', str(pid)],
+                            capture_output=True, text=True)
+    row = result.stdout.strip().split(None, 9)
+    if result.returncode or len(row) < 10 or row[8].startswith('Z'):
         return None
+    return {'pid': pid, 'ppid': int(row[0]), 'start': ' '.join(row[1:6]),
+            'tty': '0' if row[6] in ('?', '??') else row[6], 'session': row[7], 'args': row[9]}
+
+
+def process(pid):
+    info = process_info(pid)
+    return {key: info[key] for key in ('pid', 'start', 'tty', 'session')} if info else None
 
 
 def ancestor(pid):
@@ -63,7 +71,10 @@ def ancestor(pid):
     while current > 1:
         if current == pid:
             return True
-        current = int(Path(f'/proc/{current}/stat').read_text().rsplit(')', 1)[1].split()[1])
+        info = process_info(current)
+        if not info:
+            return False
+        current = info['ppid']
     return False
 
 
@@ -159,7 +170,9 @@ class Relay:
                 return
             need(os.environ.get('HERDR_ENV') == '1' and os.environ.get('HERDR_PANE_ID'), 'local Herdr required')
             need(not os.environ.get('FM_TASK_ID'), 'workers cannot relay primary')
-            argv = Path(f'/proc/{pid}/cmdline').read_bytes().decode().strip('\0').split('\0')
+            info = process_info(pid)
+            need(info, 'process arguments unavailable')
+            argv = shlex.split(info['args'])
             model = scan['model']
             for i, arg in enumerate(argv):
                 if arg == '--model' and i + 1 < len(argv):
@@ -238,8 +251,8 @@ class Relay:
     def empty(self, pane):
         info = self.call('pane', 'process-info', '--pane', pane)['process_info']
         shell = process(info['shell_pid'])
-        children = read(Path(f'/proc/{info["shell_pid"]}/task/{info["shell_pid"]}/children'), 'unknown')
-        return (shell is not None and not children and not self.pane(pane).get('agent')
+        children = subprocess.run(['pgrep', '-P', str(info['shell_pid'])], capture_output=True, text=True)
+        return (shell is not None and children.returncode == 1 and not children.stdout.strip() and not self.pane(pane).get('agent')
                 and info.get('foreground_process_group_id') == info['shell_pid']
                 and [p['pid'] for p in info.get('foreground_processes', [])] == [info['shell_pid']])
 
