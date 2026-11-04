@@ -95,7 +95,7 @@ class DoctorPlatformTest(unittest.TestCase):
                 self.assertEqual(bool(result['warnings']), warning)
                 self.assertEqual(result['relay'], 'prerequisites present' if platform == 'linux' else 'unavailable')
                 if platform != 'linux':
-                    self.assertEqual(result['relay_diagnostic']['code'], 'process_evidence_unavailable')
+                    self.assertEqual(result['relay_diagnostic']['code'], 'unsupported_platform')
                     args.require_relay = True
                     with contextlib.redirect_stdout(io.StringIO()):
                         self.assertEqual(module.doctor(args), 2)

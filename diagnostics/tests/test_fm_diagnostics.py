@@ -38,15 +38,15 @@ class DiagnosticsTest(unittest.TestCase):
             try:
                 (base / "outside").mkdir(); (base / "outside" / "events.jsonl").write_text(canaries[2])
                 archive = d.export(["extensiones", "firstmate"], out)
+                payload = zipfile.ZipFile(archive).read("events.jsonl").decode()
+                self.assertTrue(all(secret not in payload for secret in canaries))
+                self.assertIn("t-", payload)
+                first_id = json.loads(payload.splitlines()[0]).get("task")
+                second_archive = d.export(["extensiones"], base / "out-second")
+                second_payload = zipfile.ZipFile(second_archive).read("events.jsonl").decode()
+                second_id = json.loads(second_payload.splitlines()[0]).get("task")
+                self.assertNotEqual(first_id, second_id)
             finally: d.root = old
-            payload = zipfile.ZipFile(archive).read("events.jsonl").decode()
-            self.assertTrue(all(secret not in payload for secret in canaries))
-            self.assertIn("t-", payload)
-            first_id = json.loads(payload.splitlines()[0]).get("task")
-            second_archive = d.export(["extensiones"], base / "out-second")
-            second_payload = zipfile.ZipFile(second_archive).read("events.jsonl").decode()
-            second_id = json.loads(second_payload.splitlines()[0]).get("task")
-            self.assertNotEqual(first_id, second_id)
             bad = base / "bad.zip"
             with zipfile.ZipFile(bad, "w") as z: z.writestr("events.jsonl", "not json\n")
             self.assertFalse(d._verify_zip(str(bad)))

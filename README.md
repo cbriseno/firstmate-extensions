@@ -23,3 +23,14 @@ For measurement only, supply a Claude hook payload on stdin to `context-relay-li
 ## License
 
 MIT; see [LICENSE](LICENSE), [NOTICE](NOTICE), and [Spec Kit's license](vendor/spec-kit/1.2.4/LICENSE).
+
+## Maintaining a local installation
+
+Use one repository with `main` for shared fixes and `local` for private settings and evidence.
+
+1. Check out `main`, make the shared fix, run the affected local checks and commit.
+   Keep installation values configurable with empty defaults; retain private values only on `local`.
+2. Publish only `main` to the public repository through the existing publication gate.
+   Audit the exact destination and ref before publishing.
+3. Check out `local`, run `git rebase main` and repeat the affected checks.
+   Existing hooks keep their checkout paths and receive the same shared fix.
