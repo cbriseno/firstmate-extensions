@@ -221,3 +221,20 @@ sys.stdout.write(result.stdout);sys.stderr.write(result.stderr);sys.exit(result.
     (home / 'state/.lock-session').write_text('another-primary')
     assert not subject.owner()
 print('PASS: client/daemon/model fork SID accepted only for exact foreground client; lock unchanged; other primary refused')
+with tempfile.TemporaryDirectory(prefix='relay-lite-tail-') as temporary:
+    transcript = Path(temporary) / 'tail-session.jsonl'
+    usage = lambda n: json.dumps({'type': 'assistant', 'message': {'id': f'call-{n}', 'model': 'm', 'usage': {
+        'input_tokens': n, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0}}}) + '\n'
+    filler = json.dumps({'type': 'user', 'message': {'content': 'x' * 1000}}) + '\n'
+    transcript.write_text(usage(1) + filler * (relay.TAIL_BYTES // len(filler) + 50) + usage(7))
+    tail = relay.measure_tail(transcript)
+    assert relay.measure.resident(tail)['tokens'] == 7 and tail['line'] < 5000, tail['line']
+subject = relay.Relay(Path(tempfile.gettempdir()))
+subject.ticket = dict(claude='claude', sid='98694db5-full-session')
+listed = json.dumps([{'id': '98694db5', 'sessionId': '98694db5-full-session', 'kind': 'background'},
+                     {'sessionId': 'other', 'kind': 'interactive'}])
+with patch.object(relay.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, listed, '')):
+    assert subject.background_id() == '98694db5'
+    subject.ticket['sid'] = 'other'
+    assert subject.background_id() is None, 'interactive sessions keep the /exit path'
+print('PASS: tail-only measurement; background sessions detected for claude stop')

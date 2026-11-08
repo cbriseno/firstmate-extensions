@@ -13,6 +13,10 @@ No client exit is needed. The hook can also prove that client through Herdr
 and ancestry without changing the lock; tickets retain its lock SID separately
 from the model's hook SID. A genuinely different primary keeps its own lock.
 Controller handover errors still stop without replay; inspect controller.log.
+Only the transcript tail is measured, so long sessions stay within the hook
+timeout. A session Claude moved to its background daemon (`claude agents`
+kind "background") ignores /exit; the controller retires it with
+`claude stop <id>` and closes the old pane, whose client otherwise stays alive.
 """
 import argparse
 import fcntl
@@ -71,6 +75,27 @@ def process_info(pid):
 def process(pid):
     info = process_info(pid)
     return {key: info[key] for key in ('pid', 'start', 'tty', 'session')} if info else None
+
+
+TAIL_BYTES = 4 << 20
+
+
+def measure_tail(transcript):
+    """Measure resident context from the transcript tail only.
+
+    The latest usage row decides the figure; reading a whole multi-megabyte
+    session on every hook ran past the 10 s hook timeout under load.
+    """
+    state = measure.new_scan()
+    state['path'] = str(transcript)
+    info = transcript.stat()
+    state['dev'], state['ino'] = info.st_dev, info.st_ino
+    if info.st_size > TAIL_BYTES:
+        with transcript.open('rb') as stream:
+            stream.seek(info.st_size - TAIL_BYTES)
+            stream.readline()  # skip the partial first line
+            state['offset'] = stream.tell()
+    return measure.scan(state, str(transcript), 'claude', 2)
 
 
 def ancestor(pid):
@@ -196,7 +221,7 @@ class Relay:
                  'hook is not primary session')
         transcript = Path(payload['transcript_path'])
         need(transcript.is_absolute() and transcript.stem == sid, 'foreign transcript')
-        scan = measure.scan(measure.new_scan(), str(transcript), 'claude', 2)
+        scan = measure_tail(transcript)
         resident = measure.resident(scan)
         eligible = resident['status'] == 'ok' and resident['tokens'] >= int(config.get('threshold_tokens', 400000))
         if dry_run:
@@ -279,7 +304,15 @@ class Relay:
                 need(new['tab_id'] == self.ticket['old_terminal']['tab_id'], 'new pane is in another tab')
                 self.wait(lambda: self.empty(new['pane_id']), 15, 'new pane not empty; old primary preserved')
                 need(self.idle(), 'old primary became busy before exit')
-                self.prompt('exiting', '/exit')  # Exactly one send, including uncertain outcomes.
+                short_id = self.background_id()
+                if short_id:
+                    self.save('exiting', old_pane_closed=True)  # Exactly one stop, including uncertain outcomes.
+                    stopped = subprocess.run([self.ticket['claude'], 'stop', short_id],
+                                             capture_output=True, text=True, timeout=60)
+                    need(stopped.returncode == 0, f'claude stop failed: {stopped.stderr or stopped.stdout}')
+                    self.call('pane', 'close', self.ticket['old_pane'])
+                else:
+                    self.prompt('exiting', '/exit')  # Exactly one send, including uncertain outcomes.
                 self.wait(lambda: process(self.ticket['old_pid']) != self.ticket['old_process'],
                           float(config.get('exit_timeout_seconds', 120)), '/exit uncertain; no resend or launch')
                 put(self.directory / 'last-relay', str(time.time()))
@@ -294,7 +327,9 @@ class Relay:
                 self.wait(lambda: self.adopted(nonce), float(config.get('startup_timeout_seconds', 180)),
                           'successor did not adopt; both panes preserved')
                 self.save('adopted')
-                if self.terminal(self.ticket['old_pane']) == self.ticket['old_terminal'] and self.empty(self.ticket['old_pane']):
+                if self.ticket.get('old_pane_closed'):
+                    self.save('done', cleanup_pending=False)
+                elif self.terminal(self.ticket['old_pane']) == self.ticket['old_terminal'] and self.empty(self.ticket['old_pane']):
                     self.save('closing')
                     self.call('pane', 'close', self.ticket['old_pane'])
                     self.save('done', cleanup_pending=False)
@@ -305,6 +340,16 @@ class Relay:
                 self.save('done' if phase in ('adopted', 'closing') else 'stopped',
                           failed_phase=phase, error=str(exc), cleanup_pending=True)
                 print(f'RELAY-LITE STOPPED ({phase}): {exc}', flush=True)
+
+    def background_id(self):
+        """Short id when Claude lists this session as a daemon background session."""
+        result = subprocess.run([self.ticket['claude'], 'agents', '--json'], capture_output=True,
+                                text=True, timeout=30, cwd=self.home)
+        need(result.returncode == 0, f'claude agents failed: {result.stderr or result.stdout}')
+        for session in json.loads(result.stdout):
+            if session.get('sessionId') == self.ticket['sid'] and session.get('kind') == 'background':
+                return session.get('id') or self.ticket['sid'][:8]
+        return None
 
     def empty(self, pane):
         info = self.call('pane', 'process-info', '--pane', pane)['process_info']
