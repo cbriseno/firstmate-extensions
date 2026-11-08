@@ -48,4 +48,8 @@ with tempfile.TemporaryDirectory(prefix='relay-test-') as temporary:
         split, run, close = log.read_text().splitlines()
         assert split.startswith('pane split old-pane') and close == 'pane close old-pane', log.read_text()
         assert run.startswith('pane run new-pane') and harness in run and 'm1' in run and flag in run, run
+    log.write_text('')
+    result = subprocess.run(['bash', str(here / 'relay'), str(home), 'codex', '-', '-'], env=env, capture_output=True, text=True, timeout=10)
+    run = log.read_text().splitlines()[1]
+    assert result.returncode == 0 and ' -m ' not in run and 'model_reasoning_effort' not in run and 'codex' in run, run
 print('PASS: threshold blocks the stop for Claude and Codex; relay opens sibling, launches same harness, closes old pane')

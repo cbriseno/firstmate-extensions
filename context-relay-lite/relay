@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# relay FIRSTMATE_HOME HARNESS MODEL EFFORT
+# relay FIRSTMATE_HOME HARNESS MODEL EFFORT   ('-' keeps the harness default)
 # Firstmate primary relay, run by the primary itself after /stow:
 # open a sibling Herdr pane, start the same harness, model and effort there
 # as firstmate, then close this pane (which ends this session).
@@ -7,11 +7,14 @@ set -eu
 home=${1:?firstmate home} harness=${2:?harness: claude or codex} model=${3:?model} effort=${4:?effort}
 pane=${HERDR_PANE_ID:?relay must run inside a Herdr pane}
 prompt='toma el rol de firstmate; lee el resultado del stow y el estado actual; conserva todos los pendientes'
-case $harness in
-  claude) cmd=(claude --model "$model" --effort "$effort" "$prompt") ;;
-  codex) cmd=(codex -m "$model" -c "model_reasoning_effort=$effort" "$prompt") ;;
+case $harness in  # '-' for model or effort keeps that harness's configured default
+  claude) cmd=(claude) m=(--model "$model") e=(--effort "$effort") ;;
+  codex) cmd=(codex) m=(-m "$model") e=(-c "model_reasoning_effort=$effort") ;;
   *) echo "relay: unsupported harness '$harness' (claude or codex)" >&2; exit 2 ;;
 esac
+[ "$model" = - ] || cmd+=("${m[@]}")
+[ "$effort" = - ] || cmd+=("${e[@]}")
+cmd+=("$prompt")
 new=$(herdr pane split "$pane" --direction right --cwd "$home" --no-focus |
   python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
 herdr pane run "$new" "cd $(printf %q "$home") && $(printf '%q ' "${cmd[@]}")"
