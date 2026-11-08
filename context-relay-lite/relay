@@ -9,7 +9,11 @@
 set -eu
 home=${1:?firstmate home} harness=${2:?harness: claude or codex} model=${3:?model} effort=${4:?effort}
 pane=${HERDR_PANE_ID:?relay must run inside a Herdr pane}
-prompt='Take the firstmate role: read the stow result and the current state, and keep every pending item. If session start reported the lock held by the previous primary, wait until that process exits and run bin/fm-session-start.sh again.'
+# The old session holds the lock until it exits, so this session opened read-only:
+# its first step waits for that process and runs session start in the foreground.
+old=$(herdr pane process-info --pane "$pane" |
+  python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["process_info"]["foreground_processes"][0]["pid"])')
+prompt="Take the firstmate role. First run this in the foreground with a 15 minute tool timeout, because the previous primary held the lock when this session opened: cd $home && while kill -0 $old 2>/dev/null; do sleep 1; done && FM_SESSION_START_TIMEOUT=600 bin/fm-session-start.sh . Then read the stow result and the current state, and keep every pending item."
 case $harness in
   claude) cmd=(claude) m=(--model "$model") e=(--effort "$effort") ;;
   codex) cmd=(codex) m=(-m "$model") e=(-c "model_reasoning_effort=$effort") ;;

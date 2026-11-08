@@ -38,6 +38,7 @@ with tempfile.TemporaryDirectory(prefix='relay-test-') as temporary:
     fake.mkdir()
     (fake / 'herdr').write_text('#!/bin/sh\necho "$@" >> "$HERDR_LOG"\ncase "$2" in\n'
                                 'split) echo \'{"result":{"pane":{"pane_id":"new-pane"}}}\';;\n'
+                                'process-info) echo \'{"result":{"process_info":{"foreground_processes":[{"pid":4242}]}}}\';;\n'
                                 'get) echo "{\\"result\\":{\\"pane\\":{\\"agent\\":\\"$FAKE_AGENT\\",\\"agent_status\\":\\"$FAKE_STATUS\\"}}}";;\n'
                                 'esac\n')
     (fake / 'herdr').chmod(0o755)
@@ -48,12 +49,12 @@ with tempfile.TemporaryDirectory(prefix='relay-test-') as temporary:
         result = subprocess.run(['bash', str(here / 'relay'), str(home), harness, 'm1', 'high'],
                                 env=env, capture_output=True, text=True, timeout=10)
         assert result.returncode == 0, result.stderr
-        split, run, get, close = log.read_text().splitlines()
+        info, split, run, get, close = log.read_text().splitlines()
         assert split.startswith('pane split old-pane') and close == 'pane close old-pane', log.read_text()
-        assert run.startswith('pane run new-pane') and harness in run and 'm1' in run and flag in run, run
+        assert run.startswith('pane run new-pane') and harness in run and 'm1' in run and flag in run and '4242' in run and 'fm-session-start.sh' in run, run
     log.write_text('')
     result = subprocess.run(['bash', str(here / 'relay'), str(home), 'codex', '-', '-'], env=env, capture_output=True, text=True, timeout=10)
-    run = log.read_text().splitlines()[1]
+    run = log.read_text().splitlines()[2]
     assert result.returncode == 0 and ' -m ' not in run and 'model_reasoning_effort' not in run and 'codex' in run, run
     log.write_text('')
     env.update(FAKE_STATUS='idle', RELAY_WAIT_SECONDS='600')  # stuck on a startup menu: must exit after ~20 s, not 600
