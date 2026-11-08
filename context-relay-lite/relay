@@ -16,7 +16,7 @@ old=$(herdr pane process-info --pane "$pane" |
 prompt="Take the firstmate role. First run this in the foreground with a 15 minute tool timeout, because the previous primary held the lock when this session opened: \`cd $home && while kill -0 $old 2>/dev/null; do sleep 1; done && FM_SESSION_START_TIMEOUT=600 bin/fm-session-start.sh\` Then read the stow result and the current state, and keep every pending item."
 case $harness in
   claude) cmd=(claude) m=(--model "$model") e=(--effort "$effort") ;;
-  codex) cmd=(codex) m=(-m "$model") e=(-c "model_reasoning_effort=$effort") ;;
+  codex) cmd=(codex --no-daemon) m=(-m "$model") e=(-c "model_reasoning_effort=$effort") ;;  # own process tree, so Firstmate can anchor the lock
   *) echo "relay: unsupported harness '$harness' (claude or codex)" >&2; exit 2 ;;
 esac
 [ "$model" = - ] || cmd+=("${m[@]}")

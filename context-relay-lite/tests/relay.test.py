@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix='relay-test-') as temporary:
                                 'esac\n')
     (fake / 'herdr').chmod(0o755)
     env.update(PATH=f'{fake}:{env["PATH"]}', HERDR_PANE_ID='old-pane', HERDR_LOG=str(log), FAKE_STATUS='working', RELAY_WAIT_SECONDS='3')
-    for harness, flag in (('claude', '--effort high'), ('codex', 'model_reasoning_effort=high')):
+    for harness, flag in (('claude', '--effort high'), ('codex', '--no-daemon -m m1 -c model_reasoning_effort=high')):
         log.write_text('')
         env['FAKE_AGENT'] = harness
         result = subprocess.run(['bash', str(here / 'relay'), str(home), harness, 'm1', 'high'],
