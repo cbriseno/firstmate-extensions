@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix='relay-test-') as temporary:
 
     for row in (claude_row, codex_row):
         result = check(row, 290000)
-        assert result.returncode == 2 and 'haz el relevo' in result.stderr, result
+        assert result.returncode == 2 and 'relay now' in result.stderr, result
         assert check(row, 300000).returncode == 0, 'below threshold'
         assert check(row, 0).returncode == 0, 'threshold 0 is off'
         assert check(row, 290000, stop_hook_active=True).returncode == 0, 'never block twice in a row'
@@ -36,20 +36,28 @@ with tempfile.TemporaryDirectory(prefix='relay-test-') as temporary:
     log = home / 'herdr.log'
     fake = home / 'bin'
     fake.mkdir()
-    (fake / 'herdr').write_text('#!/bin/sh\necho "$@" >> "$HERDR_LOG"\n'
-                                'case "$2" in split) echo \'{"result":{"pane":{"pane_id":"new-pane"}}}\';; esac\n')
+    (fake / 'herdr').write_text('#!/bin/sh\necho "$@" >> "$HERDR_LOG"\ncase "$2" in\n'
+                                'split) echo \'{"result":{"pane":{"pane_id":"new-pane"}}}\';;\n'
+                                'get) echo "{\\"result\\":{\\"pane\\":{\\"agent\\":\\"$FAKE_AGENT\\",\\"agent_status\\":\\"$FAKE_STATUS\\"}}}";;\n'
+                                'esac\n')
     (fake / 'herdr').chmod(0o755)
-    env.update(PATH=f'{fake}:{env["PATH"]}', HERDR_PANE_ID='old-pane', HERDR_LOG=str(log))
+    env.update(PATH=f'{fake}:{env["PATH"]}', HERDR_PANE_ID='old-pane', HERDR_LOG=str(log), FAKE_STATUS='working', RELAY_WAIT_SECONDS='3')
     for harness, flag in (('claude', '--effort high'), ('codex', 'model_reasoning_effort=high')):
         log.write_text('')
+        env['FAKE_AGENT'] = harness
         result = subprocess.run(['bash', str(here / 'relay'), str(home), harness, 'm1', 'high'],
                                 env=env, capture_output=True, text=True, timeout=10)
         assert result.returncode == 0, result.stderr
-        split, run, close = log.read_text().splitlines()
+        split, run, get, close = log.read_text().splitlines()
         assert split.startswith('pane split old-pane') and close == 'pane close old-pane', log.read_text()
         assert run.startswith('pane run new-pane') and harness in run and 'm1' in run and flag in run, run
     log.write_text('')
     result = subprocess.run(['bash', str(here / 'relay'), str(home), 'codex', '-', '-'], env=env, capture_output=True, text=True, timeout=10)
     run = log.read_text().splitlines()[1]
     assert result.returncode == 0 and ' -m ' not in run and 'model_reasoning_effort' not in run and 'codex' in run, run
-print('PASS: threshold blocks the stop for Claude and Codex; relay opens sibling, launches same harness, closes old pane')
+    log.write_text('')
+    env.update(FAKE_STATUS='idle')  # e.g. stuck on a startup menu
+    result = subprocess.run(['bash', str(here / 'relay'), str(home), 'codex', 'm1', 'low'], env=env, capture_output=True, text=True, timeout=20)
+    assert result.returncode == 1 and 'this primary stays' in result.stderr, result
+    assert 'pane close old-pane' not in log.read_text(), 'old pane must stay when the new one is not working'
+print('PASS: threshold blocks the stop for Claude and Codex; relay closes the old pane only once the new harness is working')

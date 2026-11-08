@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # relay FIRSTMATE_HOME HARNESS MODEL EFFORT   ('-' keeps the harness default)
 # Firstmate primary relay, run by the primary itself after /stow:
-# open a sibling Herdr pane, start the same harness, model and effort there
-# as firstmate, then close this pane (which ends this session).
+# open a sibling Herdr pane, start the harness there as firstmate, and close
+# this pane (ending this session) only once the new harness is working on that
+# instruction. If it is not working within RELAY_WAIT_SECONDS (600), this pane
+# stays open and the new pane's screen is printed.
 set -eu
 home=${1:?firstmate home} harness=${2:?harness: claude or codex} model=${3:?model} effort=${4:?effort}
 pane=${HERDR_PANE_ID:?relay must run inside a Herdr pane}
-prompt='toma el rol de firstmate; lee el resultado del stow y el estado actual; conserva todos los pendientes'
-case $harness in  # '-' for model or effort keeps that harness's configured default
+prompt='Take the firstmate role: read the stow result and the current state, and keep every pending item. If session start reported the lock held by the previous primary, wait until that process exits and run bin/fm-session-start.sh again.'
+case $harness in
   claude) cmd=(claude) m=(--model "$model") e=(--effort "$effort") ;;
   codex) cmd=(codex) m=(-m "$model") e=(-c "model_reasoning_effort=$effort") ;;
   *) echo "relay: unsupported harness '$harness' (claude or codex)" >&2; exit 2 ;;
@@ -18,4 +20,15 @@ cmd+=("$prompt")
 new=$(herdr pane split "$pane" --direction right --cwd "$home" --no-focus |
   python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
 herdr pane run "$new" "cd $(printf %q "$home") && $(printf '%q ' "${cmd[@]}")"
-herdr pane close "$pane"
+for _ in $(seq "${RELAY_WAIT_SECONDS:-600}"); do
+  state=$(herdr pane get "$new" | python3 -c \
+    'import json, sys; p = json.load(sys.stdin)["result"]["pane"]; print(p.get("agent"), p.get("agent_status"))')
+  case $state in "$harness working" | "$harness done")
+    herdr pane close "$pane"
+    exit 0 ;;
+  esac
+  sleep 1
+done
+echo "relay: the new $harness in pane $new is not working ($state); this primary stays. Its screen:" >&2
+herdr pane read "$new" --lines 15 >&2 || true
+exit 1
