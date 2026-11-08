@@ -5,7 +5,12 @@ Hook: relay-hook FIRSTMATE_HOME (Claude Stop/PostToolUse JSON on stdin).
 Check: relay.py --home FIRSTMATE_HOME --dry-run < hook-payload.json
 Consent: config/relay-lite.json: enabled, threshold_tokens (default 400000),
 stow_timeout_seconds (1800), startup_timeout_seconds (180), exit_timeout_seconds
-(120). Errors stop here, without retry or automatic recovery; see controller.log.
+(120). The hook reports eligible ownership conflicts and errors once per session
+and condition in Claude's systemMessage and controller.log. Ownership recovery
+belongs to Firstmate's normal startup/Stop auto-arm; the hook never replaces an
+owner. After the old owner's normal exit, manual acquisition is also available:
+FM_HOME=FIRSTMATE_HOME bash FIRSTMATE_HOME/bin/fm-lock.sh
+Controller handover errors still stop without replay; inspect controller.log.
 """
 import argparse
 import fcntl
@@ -94,6 +99,21 @@ class Relay:
         self.ticket.update(values, phase=phase, updated_at=time.time())
         put(self.ticket_path, json.dumps(self.ticket, ensure_ascii=False) + '\n')
 
+    def warning(self, sid, reason, detail=''):
+        need(re.fullmatch(r'[A-Za-z0-9._-]+', sid), 'invalid session id')
+        self.directory.mkdir(parents=True, exist_ok=True)
+        warning = self.directory / ('warning-' + sid)
+        if read(warning) == reason:
+            return
+        message = f'RELAY-LITE BLOCKED: {detail}{reason}'
+        print(json.dumps({'systemMessage': message}), flush=True)
+        with (self.directory / 'controller.log').open('a') as log:
+            log.write(f'{time.time()} {sid}: {message}\n')
+        put(warning, reason)
+
+    def clear_warning(self, sid):
+        (self.directory / ('warning-' + sid)).unlink(missing_ok=True)
+
     def call(self, *args):
         result = subprocess.run(['herdr', '--session', self.ticket['herdr_session'], *args],
                                 capture_output=True, text=True, timeout=15)
@@ -139,13 +159,14 @@ class Relay:
         self.save(phase)  # Intention is durable BEFORE sending; no resend path.
         self.call('agent', 'prompt', self.ticket['old_pane'], text)
 
-    def admit(self, payload, dry_run):
+    def admit(self, payload, dry_run, ownership=None):
         config = self.config()
         sid = payload['session_id']
         need(re.fullmatch(r'[A-Za-z0-9._-]+', sid), 'invalid session id')
         pid = int(read(self.home / 'state/.lock', '0'))
-        need(pid > 1 and ancestor(pid), 'hook is not a descendant of primary')
-        need(read(self.home / 'state/.lock-session') == sid, 'hook is not primary session')
+        if ownership in (None, 'owned'):
+            need(pid > 1 and ancestor(pid), 'hook is not a descendant of primary')
+            need(read(self.home / 'state/.lock-session') == sid, 'hook is not primary session')
         transcript = Path(payload['transcript_path'])
         need(transcript.is_absolute() and transcript.stem == sid, 'foreign transcript')
         scan = measure.scan(measure.new_scan(), str(transcript), 'claude', 2)
@@ -153,6 +174,16 @@ class Relay:
         eligible = resident['status'] == 'ok' and resident['tokens'] >= int(config.get('threshold_tokens', 400000))
         if dry_run:
             print(json.dumps({'phase': 'measurement', 'eligible': eligible, 'resident': resident, 'dry_run': True}))
+            return
+        if ownership not in (None, 'owned'):
+            if not eligible:
+                return
+            reason = ('another live primary owns this home; preserve its lock, let its owner exit normally, '
+                      'then run bin/fm-lock.sh from this session' if ownership == 'held' else
+                      f'primary ownership is {ownership}; use normal Firstmate startup/Stop auto-arm '
+                      'or run bin/fm-lock.sh from this session to recover')
+            self.warning(sid, reason, f'{resident["tokens"]} resident tokens >= '
+                         f'{config.get("threshold_tokens", 400000)}; ')
             return
         self.directory.mkdir(parents=True, exist_ok=True)
         if payload.get('hook_event_name') == 'Stop':
@@ -274,15 +305,27 @@ def main():
     parser.add_argument('--home', type=Path, required=True)
     parser.add_argument('--dry-run', action='store_true', help='measurement only; no writes, Herdr calls or launches')
     parser.add_argument('--drive', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--hook', action='store_true', help='Claude hook output; report errors once as systemMessage')
+    parser.add_argument('--ownership', help=argparse.SUPPRESS)
     args = parser.parse_args()
     relay = Relay(args.home)
+    payload = {}
     try:
         if args.drive:
             need(not args.dry_run, 'drive cannot be dry-run')
             relay.drive()
         else:
-            relay.admit(json.load(sys.stdin), args.dry_run)
+            need(args.hook or args.ownership is None, 'ownership is internal to the hook')
+            payload = json.load(sys.stdin)
+            relay.admit(payload, args.dry_run, args.ownership)
+            if not args.dry_run and args.ownership in (None, 'owned'):
+                relay.clear_warning(payload['session_id'])
     except Exception as exc:
+        if args.hook:
+            if str(exc) != 'relay disabled':
+                sid = payload.get('session_id', 'unknown') if isinstance(payload, dict) else 'unknown'
+                relay.warning(sid, str(exc))
+            return 0
         print(f'relay-lite: {exc}', file=sys.stderr)
         return 1
     return 0

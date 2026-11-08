@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One quick executable smoke: measurement dry-run cannot write or call Herdr."""
+"""Dry-run safety and hook ownership/error reporting, without Herdr operations."""
 import hashlib
 import importlib.util
 import json
@@ -60,3 +60,97 @@ with tempfile.TemporaryDirectory(prefix='relay-lite-smoke-') as temporary:
     assert snapshot() == before, 'dry-run changed files'
     assert not (home / 'state/relay-lite').exists(), 'dry-run created relay state'
 print(f'PASS: parses and measures 400025 resident tokens; no writes or Herdr calls ({time.monotonic()-started:.3f}s)')
+
+# Exercise the hook boundary against Firstmate's published ownership API.
+# Identity classification belongs to Firstmate; fixtures provide that API.
+with tempfile.TemporaryDirectory(prefix='relay-lite-hook-') as temporary:
+    home = Path(temporary)
+    (home / 'config').mkdir()
+    (home / 'state').mkdir()
+    (home / 'bin').mkdir()
+    (home / 'config/relay-lite.json').write_text(json.dumps({'enabled': True, 'threshold_tokens': 300000}))
+    (home / 'state/.lock').write_text(str(os.getpid()))
+    (home / 'state/.lock-session').write_text('fork-session')
+    ownership = home / 'state/ownership'
+    ownership.write_text('held')
+    (home / 'bin/fm-primary-scope-lib.sh').write_text('fm_primary_scope_matches() { return 0; }\n')
+    (home / 'bin/fm-session-lock-lib.sh').write_text('''
+fm_session_lock_owned_by_self() { [ "$(cat "$1/ownership")" = owned ]; }
+fm_session_lock_inspect() { FM_LOCK_INSPECT_STATE=$(cat "$1/ownership"); }
+''')
+    # Lock acquisition belongs to Firstmate, outside the short relay hook.
+    acquire = home / 'bin/fm-lock.sh'
+    acquire.write_text('#!/bin/sh\ntouch "$FM_HOME/state/unexpected-acquisition"\nexit 91\n')
+    acquire.chmod(0o755)
+    transcript = home / 'fork-session.jsonl'
+    transcript.write_text(json.dumps({'type': 'assistant', 'message': {
+        'id': 'call-1', 'model': 'fixture-model', 'usage': {
+            'input_tokens': 2, 'cache_creation_input_tokens': 4358, 'cache_read_input_tokens': 591396}}}) + '\n')
+    payload = json.dumps({'session_id': 'fork-session', 'transcript_path': str(transcript),
+                          'hook_event_name': 'PostToolUse'})
+    env = {key: value for key, value in os.environ.items()
+           if key not in ('FM_TASK_ID', 'HERDR_ENV', 'HERDR_PANE_ID')}
+    env['FM_HOME'] = str(home)
+    hook = controller.with_name('relay-hook')
+    def invoke():
+        result = subprocess.run(['bash', str(hook), str(home)], input=payload, env=env,
+                                capture_output=True, text=True, timeout=10)
+        assert result.returncode == 0, result.stderr
+        return result.stdout.strip()
+    before = (home / 'state/.lock').read_bytes()
+    alert = json.loads(invoke())
+    assert 'another live primary' in alert['systemMessage'], alert
+    assert '595756' in alert['systemMessage'] and '300000' in alert['systemMessage'], alert
+    assert (home / 'state/.lock').read_bytes() == before
+    assert not (home / 'state/unexpected-acquisition').exists()
+    assert not (home / 'state/relay-lite/ticket.json').exists()
+    assert invoke() == '', 'unchanged conflict must not repeat a warning on every tool'
+    with transcript.open('a') as stream:
+        stream.write(json.dumps({'type': 'assistant', 'message': {
+            'id': 'call-2', 'model': 'fixture-model', 'usage': {'input_tokens': 600000}}}) + '\n')
+    assert invoke() == '', 'a larger context is still the same ownership conflict'
+    log = home / 'state/relay-lite/controller.log'
+    assert 'another live primary' in log.read_text()
+    # Below-threshold conflict needs no alarm, then a later crossing does.
+    ownership.write_text('owned')
+    (home / 'config/relay-lite.json').write_text(json.dumps({'enabled': True, 'threshold_tokens': 900000}))
+    assert invoke() == ''
+    ownership.write_text('held')
+    assert invoke() == ''
+    (home / 'config/relay-lite.json').write_text(json.dumps({'enabled': True, 'threshold_tokens': 300000}))
+    assert 'another live primary' in json.loads(invoke())['systemMessage']
+    # Successful ownership verification rearms even during the cooldown.
+    ownership.write_text('owned')
+    cooldown = home / 'state/relay-lite/last-relay'
+    cooldown.write_text(str(time.time()))
+    assert invoke() == ''
+    ownership.write_text('held')
+    assert 'another live primary' in json.loads(invoke())['systemMessage']
+    cooldown.unlink()
+    # A dead owner remains Firstmate's acquisition responsibility.
+    ownership.write_text('stale')
+    assert 'ownership is stale' in json.loads(invoke())['systemMessage']
+    assert not (home / 'state/unexpected-acquisition').exists()
+    # After normal acquisition restores ownership, the next hook retries;
+    # low threshold exposes a second pre-launch failure, without calling Herdr.
+    ownership.write_text('owned')
+    alert = json.loads(invoke())
+    assert 'local Herdr required' in alert['systemMessage'], alert
+    assert ownership.read_text().strip() == 'owned'
+    assert invoke() == '', 'unchanged pre-launch error must not repeat'
+    assert not (home / 'state/relay-lite/ticket.json').exists()
+    assert 'local Herdr required' in log.read_text()
+    # Disabled and below-threshold hooks cannot change lock ownership.
+    ownership.write_text('stale')
+    for config in ({'enabled': False}, {'enabled': True, 'threshold_tokens': 900000}):
+        (home / 'config/relay-lite.json').write_text(json.dumps(config))
+        assert invoke() == ''
+        assert ownership.read_text() == 'stale'
+        assert not (home / 'state/unexpected-acquisition').exists()
+    # An optimistic shell verdict cannot grant authority with a foreign SID.
+    ownership.write_text('owned')
+    (home / 'config/relay-lite.json').write_text(json.dumps({'enabled': True, 'threshold_tokens': 300000}))
+    (home / 'state/.lock-session').write_text('foreign-session')
+    assert 'hook is not primary session' in json.loads(invoke())['systemMessage']
+    assert not (home / 'state/relay-lite/ticket.json').exists()
+print('PASS: ownership conflicts visible once; threshold crossing alerts; restored ownership retries; pre-launch errors visible once')

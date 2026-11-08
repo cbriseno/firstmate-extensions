@@ -18,7 +18,15 @@ The runtime is installed under `$XDG_DATA_HOME/firstmate-extensions/runtime` (or
 
 Relay-lite supports Claude on Linux and macOS (not yet verified on a real Mac) with Herdr and a compatible Firstmate home. Installation copies the relay but does not configure hooks or enable it. To use it, configure Claude Stop and PostToolUse hooks to invoke the installed `context-relay-lite/relay-hook` with your Firstmate home as its argument. The hook requires Firstmate's primary-scope and session-lock libraries. Set `config/relay-lite.json` in that home to `{"enabled": true}` to opt in; remove it or set `enabled` to `false` to stop further relay operations. The default threshold is 400000 resident tokens. Optional `threshold_tokens`, `stow_timeout_seconds`, `startup_timeout_seconds`, and `exit_timeout_seconds` settings are documented in `relay.py`.
 
-For measurement only, supply a Claude hook payload on stdin to `context-relay-lite/relay.py --home "$FIRSTMATE_HOME" --dry-run`. This does not launch a relay. The live handover needs the local Herdr session and a matching primary Claude session. Errors stop the controller and are recorded in the home under `state/relay-lite/controller.log`; inspect them before acting. Installation does not establish hook trust or native activation.
+For measurement only, supply a Claude hook payload on stdin to `context-relay-lite/relay.py --home "$FIRSTMATE_HOME" --dry-run`.
+This does not launch a relay.
+The live handover needs the local Herdr session and a matching primary Claude session.
+When the threshold is crossed but another live primary owns the home, the hook reports the conflict through Claude's `systemMessage` without replacing that owner.
+The same unchanged conflict or pre-launch error is reported once per session, recorded in `state/relay-lite/controller.log`, and rearmed after recovery.
+Firstmate's normal startup or Stop auto-arm can recover a dead owner's lock; the relay hook never changes lock ownership and retries automatically once ownership is restored.
+See `relay.py --help` for the supported recovery command; never delete the lock or relay ticket manually.
+Handover errors still stop the controller without replay and remain in `controller.log` for inspection.
+Installation does not establish hook trust or native activation.
 
 ## License
 
