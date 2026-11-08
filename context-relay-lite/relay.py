@@ -4,7 +4,7 @@
 Hook: relay-hook FIRSTMATE_HOME (Claude Stop/PostToolUse JSON on stdin).
 Check: relay.py --home FIRSTMATE_HOME --dry-run < hook-payload.json
 Consent: config/relay-lite.json: enabled, threshold_tokens (default 400000),
-stow_timeout_seconds (1800), startup_timeout_seconds (180), exit_timeout_seconds
+stow_timeout_seconds (1800), startup_timeout_seconds (900), exit_timeout_seconds
 (120). The hook reports eligible ownership conflicts and errors once per session
 and condition in Claude's systemMessage and controller.log. For a fork under
 the same foreground client, normal acquisition refreshes only the SID:
@@ -332,7 +332,7 @@ class Relay:
                 self.config()
                 self.save('launching')
                 self.call('pane', 'run', new['pane_id'], command)
-                self.wait(lambda: self.adopted(nonce), float(config.get('startup_timeout_seconds', 180)),
+                self.wait(lambda: self.adopted(nonce), float(config.get('startup_timeout_seconds', 900)),
                           'successor did not adopt; both panes preserved')
                 self.save('adopted')
                 if self.ticket.get('old_pane_closed'):
