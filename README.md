@@ -21,6 +21,7 @@ Relay-lite supports Claude on Linux and macOS (not yet verified on a real Mac) w
 For measurement only, supply a Claude hook payload on stdin to `context-relay-lite/relay.py --home "$FIRSTMATE_HOME" --dry-run`.
 This does not launch a relay.
 The live handover needs the local Herdr session and a matching primary Claude session.
+A background model with a new hook session ID can still belong to the lock-owning pane client; the hook verifies that relationship before admitting its relay.
 When the threshold is crossed but another live primary owns the home, the hook reports the conflict through Claude's `systemMessage` without replacing that owner.
 The same unchanged conflict or pre-launch error is reported once per session, recorded in `state/relay-lite/controller.log`, and rearmed after recovery.
 Firstmate's normal startup or Stop auto-arm can recover a dead owner's lock; the relay hook never changes lock ownership and retries automatically once ownership is restored.

@@ -154,3 +154,70 @@ fm_session_lock_inspect() { FM_LOCK_INSPECT_STATE=$(cat "$1/ownership"); }
     assert 'hook is not primary session' in json.loads(invoke())['systemMessage']
     assert not (home / 'state/relay-lite/ticket.json').exists()
 print('PASS: ownership conflicts visible once; threshold crossing alerts; restored ownership retries; pre-launch errors visible once')
+
+# A pane client can parent a daemon/model with a new hook SID while the lock
+# still records the client and its pre-fork SID. No real Herdr is invoked.
+with tempfile.TemporaryDirectory(prefix='relay-lite-client-') as temporary:
+    home = Path(temporary)
+    for name in ('bin', 'config', 'state', 'state/relay-lite'):
+        (home / name).mkdir(exist_ok=True)
+    (home / 'config/relay-lite.json').write_text('{"enabled":true,"threshold_tokens":300000}')
+    (home / 'state/.lock').write_text(str(os.getpid()))
+    (home / 'state/.lock-session').write_text('client-session')
+    (home / 'state/relay-lite/last-relay').write_text(str(time.time()))  # No controller launch.
+    (home / 'bin/fm-primary-scope-lib.sh').write_text('fm_primary_scope_matches() { return 0; }\n')
+    (home / 'bin/fm-session-lock-lib.sh').write_text('fm_session_lock_owned_by_self() { return 0; }\n')
+    (home / 'state/pane-owner').write_text(str(os.getpid()))
+    herdr = home / 'bin/herdr'
+    herdr.write_text('''#!/usr/bin/env python3
+import json,pathlib,sys
+home=pathlib.Path(__file__).resolve().parents[1]
+args=sys.argv[1:]
+if args[2:]==['pane','get','fixture-pane']:
+ value={'pane':{'pane_id':'fixture-pane','agent':'claude','foreground_cwd':str(home)}}
+elif args[2:]==['pane','process-info','--pane','fixture-pane']:
+ pid=int((home/'state/pane-owner').read_text())
+ value={'process_info':{'foreground_process_group_id':pid,'foreground_processes':[{'pid':pid}]}}
+else:
+ sys.exit('unexpected Herdr operation')
+print(json.dumps({'result':value}))
+''')
+    herdr.chmod(0o755)
+    transcript = home / 'fork-session.jsonl'
+    transcript.write_text(json.dumps({'type': 'assistant', 'message': {
+        'id': 'call', 'model': 'fixture', 'usage': {'input_tokens': 595756}}}) + '\n')
+    payload = json.dumps({'session_id': 'fork-session', 'transcript_path': str(transcript),
+                          'hook_event_name': 'PostToolUse'})
+    runner = home / 'model.py'
+    runner.write_text('''import os,subprocess,sys
+if sys.argv[1]=='daemon':
+ result=subprocess.run([sys.executable,__file__,'model',*sys.argv[2:]],capture_output=True,text=True,timeout=15)
+else:
+ env={**os.environ,'CLAUDE_PID':str(os.getpid()),'CLAUDE_CODE_SESSION_ID':'fork-session'}
+ result=subprocess.run(['bash',*sys.argv[2:4]],input=sys.argv[4],env=env,capture_output=True,text=True,timeout=10)
+sys.stdout.write(result.stdout);sys.stderr.write(result.stderr);sys.exit(result.returncode)
+''')
+    env = {key: value for key, value in os.environ.items() if key != 'FM_TASK_ID'}
+    env.update(FM_HOME=str(home), HERDR_ENV='1', HERDR_PANE_ID='fixture-pane',
+               PATH=str(home / 'bin') + ':' + os.environ['PATH'])
+    def topology_hook():
+        result = subprocess.run([sys.executable, str(runner), 'daemon', str(controller.with_name('relay-hook')),
+                                 str(home), payload], env=env, capture_output=True, text=True, timeout=20)
+        assert result.returncode == 0, result.stderr
+        return result.stdout.strip()
+    assert topology_hook() == '', 'same foreground client must accept the fork SID without changing its lock'
+    assert (home / 'state/.lock-session').read_text() == 'client-session'
+    assert not (home / 'state/relay-lite/ticket.json').exists()
+    # Neither a different pane client nor an optimistic shell ownership verdict
+    # can make another primary the lock holder.
+    (home / 'state/pane-owner').write_text(str(os.getppid()))
+    assert 'hook is not primary session' in json.loads(topology_hook())['systemMessage']
+    subject = relay.Relay(home)
+    subject.ticket = dict(old_pid=os.getpid(), old_process=relay.process(os.getpid()),
+                          sid='fork-session', lock_sid='client-session')
+    assert subject.owner(), 'controller must retain the captured client/SID binding'
+    (home / 'state/.lock-session').write_text('fork-session')
+    assert subject.owner(), 'normal Firstmate SID refresh must remain valid'
+    (home / 'state/.lock-session').write_text('another-primary')
+    assert not subject.owner()
+print('PASS: client/daemon/model fork SID accepted only for exact foreground client; lock unchanged; other primary refused')

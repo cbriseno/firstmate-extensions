@@ -6,10 +6,12 @@ Check: relay.py --home FIRSTMATE_HOME --dry-run < hook-payload.json
 Consent: config/relay-lite.json: enabled, threshold_tokens (default 400000),
 stow_timeout_seconds (1800), startup_timeout_seconds (180), exit_timeout_seconds
 (120). The hook reports eligible ownership conflicts and errors once per session
-and condition in Claude's systemMessage and controller.log. Ownership recovery
-belongs to Firstmate's normal startup/Stop auto-arm; the hook never replaces an
-owner. After the old owner's normal exit, manual acquisition is also available:
+and condition in Claude's systemMessage and controller.log. For a fork under
+the same foreground client, normal acquisition refreshes only the SID:
 FM_HOME=FIRSTMATE_HOME bash FIRSTMATE_HOME/bin/fm-lock.sh
+No client exit is needed. The hook can also prove that client through Herdr
+and ancestry without changing the lock; tickets retain its lock SID separately
+from the model's hook SID. A genuinely different primary keeps its own lock.
 Controller handover errors still stop without replay; inspect controller.log.
 """
 import argparse
@@ -114,9 +116,9 @@ class Relay:
     def clear_warning(self, sid):
         (self.directory / ('warning-' + sid)).unlink(missing_ok=True)
 
-    def call(self, *args):
+    def call(self, *args, timeout=15):
         result = subprocess.run(['herdr', '--session', self.ticket['herdr_session'], *args],
-                                capture_output=True, text=True, timeout=15)
+                                capture_output=True, text=True, timeout=timeout)
         need(result.returncode == 0, f'Herdr rejected or uncertain {args[:2]}: {result.stderr or result.stdout}')
         if args[0] == 'agent' or args[:2] == ('pane', 'run'):
             return {}  # These transport commands are checked by exit status.
@@ -147,7 +149,30 @@ class Relay:
     def owner(self):
         return (process(self.ticket['old_pid']) == self.ticket['old_process']
                 and read(self.home / 'state/.lock') == str(self.ticket['old_pid'])
-                and read(self.home / 'state/.lock-session') == self.ticket['sid'])
+                and read(self.home / 'state/.lock-session') in
+                (self.ticket['sid'], self.ticket.get('lock_sid', self.ticket['sid'])))
+
+    def same_client(self, pid, sid):
+        """Prove a forked model still belongs to the exact foreground client.
+
+        The client owns the lock/terminal; the model owns the hook/transcript SID.
+        A pane environment value alone never establishes that relationship.
+        """
+        model = os.environ.get('CLAUDE_PID', '')
+        pane = os.environ.get('HERDR_PANE_ID')
+        if (os.environ.get('HERDR_ENV') != '1' or not pane
+                or os.environ.get('CLAUDE_CODE_SESSION_ID') != sid
+                or not model.isdigit() or int(model) <= 1 or int(model) == pid
+                or not ancestor(int(model))):
+            return False
+        self.ticket['herdr_session'] = os.environ.get('HERDR_SESSION') or 'default'
+        view = self.call('pane', 'get', pane, timeout=2)['pane']
+        info = self.call('pane', 'process-info', '--pane', pane, timeout=2)['process_info']
+        cwd = view.get('foreground_cwd')
+        return (view.get('pane_id') == pane and view.get('agent') == 'claude'
+                and isinstance(cwd, str) and Path(cwd).resolve() == self.home
+                and info.get('foreground_process_group_id') == pid
+                and [p.get('pid') for p in info.get('foreground_processes', [])] == [pid])
 
     def idle(self):
         need(self.owner(), 'old primary no longer matches')
@@ -164,9 +189,11 @@ class Relay:
         sid = payload['session_id']
         need(re.fullmatch(r'[A-Za-z0-9._-]+', sid), 'invalid session id')
         pid = int(read(self.home / 'state/.lock', '0'))
+        lock_sid = read(self.home / 'state/.lock-session')
         if ownership in (None, 'owned'):
             need(pid > 1 and ancestor(pid), 'hook is not a descendant of primary')
-            need(read(self.home / 'state/.lock-session') == sid, 'hook is not primary session')
+            need(lock_sid == sid or (ownership == 'owned' and not dry_run and self.same_client(pid, sid)),
+                 'hook is not primary session')
         transcript = Path(payload['transcript_path'])
         need(transcript.is_absolute() and transcript.stem == sid, 'foreign transcript')
         scan = measure.scan(measure.new_scan(), str(transcript), 'claude', 2)
@@ -211,7 +238,7 @@ class Relay:
                 elif arg.startswith('--model='):
                     model = arg.split('=', 1)[1]
             need(model and shutil.which('claude'), 'Claude executable/model unavailable')
-            self.ticket = dict(sid=sid, nonce=uuid.uuid4().hex, old_pid=pid,
+            self.ticket = dict(sid=sid, lock_sid=lock_sid, nonce=uuid.uuid4().hex, old_pid=pid,
                                old_process=process(pid), model=model, claude=shutil.which('claude'),
                                old_pane=os.environ['HERDR_PANE_ID'],
                                herdr_session=os.environ.get('HERDR_SESSION') or 'default')
