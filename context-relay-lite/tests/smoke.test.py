@@ -238,3 +238,26 @@ with patch.object(relay.subprocess, 'run', return_value=subprocess.CompletedProc
     subject.ticket['sid'] = 'other'
     assert subject.background_id() is None, 'interactive sessions keep the /exit path'
 print('PASS: tail-only measurement; background sessions detected for claude stop')
+import contextlib, io
+with tempfile.TemporaryDirectory(prefix='relay-lite-now-') as temporary:
+    home = Path(temporary)
+    for d in ('config', 'state/relay-lite'):
+        (home / d).mkdir(parents=True)
+    (home / 'config/relay-lite.json').write_text(json.dumps({'enabled': True, 'threshold_tokens': 400000}))
+    (home / 'state/.lock').write_text(str(os.getpid()))
+    (home / 'state/.lock-session').write_text('now-session')
+    transcript = home / 'now-session.jsonl'
+    transcript.write_text(json.dumps({'type': 'assistant', 'message': {'id': 'c', 'model': 'm', 'usage': {
+        'input_tokens': 10, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0}}}) + '\n')
+    payload = {'session_id': 'now-session', 'transcript_path': str(transcript), 'hook_event_name': 'Stop'}
+    def measured():
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            relay.Relay(home).admit(payload, True)
+        return json.loads(out.getvalue())['eligible']
+    assert not measured(), 'small context stays below threshold'
+    (home / 'state/relay-lite/request').write_text('')
+    assert measured(), 'a captain request is eligible regardless of threshold'
+with patch.object(relay.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '', 'disabled')):
+    assert subject.background_id() is None, 'disabled agent view keeps the /exit path'
+print('PASS: relay-now request bypasses threshold; disabled agent view tolerated')

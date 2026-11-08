@@ -13,6 +13,8 @@ No client exit is needed. The hook can also prove that client through Herdr
 and ancestry without changing the lock; tickets retain its lock SID separately
 from the model's hook SID. A genuinely different primary keeps its own lock.
 Controller handover errors still stop without replay; inspect controller.log.
+Relay now on request: the primary creates state/relay-lite/request and ends
+its turn; the next Stop starts the relay regardless of threshold and cooldown.
 Only the transcript tail is measured, so long sessions stay within the hook
 timeout. A session Claude moved to its background daemon (`claude agents`
 kind "background") ignores /exit; the controller retires it with
@@ -223,7 +225,10 @@ class Relay:
         need(transcript.is_absolute() and transcript.stem == sid, 'foreign transcript')
         scan = measure_tail(transcript)
         resident = measure.resident(scan)
-        eligible = resident['status'] == 'ok' and resident['tokens'] >= int(config.get('threshold_tokens', 400000))
+        request = self.directory / 'request'  # Captain asked for a relay now: skip threshold and cooldown.
+        requested = request.exists()
+        eligible = requested or (resident['status'] == 'ok'
+                                 and resident['tokens'] >= int(config.get('threshold_tokens', 400000)))
         if dry_run:
             print(json.dumps({'phase': 'measurement', 'eligible': eligible, 'resident': resident, 'dry_run': True}))
             return
@@ -249,15 +254,17 @@ class Relay:
                 return
             if (self.directory / ('session-' + sid)).exists():
                 return
-            if time.time() - float(read(self.directory / 'last-relay', '0')) < 1800:
+            if not requested and time.time() - float(read(self.directory / 'last-relay', '0')) < 1800:
                 return
             need(os.environ.get('HERDR_ENV') == '1' and os.environ.get('HERDR_PANE_ID'), 'local Herdr required')
             need(not os.environ.get('FM_TASK_ID'), 'workers cannot relay primary')
             info = process_info(pid)
             need(info, 'process arguments unavailable')
             argv = shlex.split(info['args'])
-            model = scan['model']
+            model = scan['model']  # The model in use now, including a later /model choice.
             for i, arg in enumerate(argv):
+                if model:
+                    break
                 if arg == '--model' and i + 1 < len(argv):
                     model = argv[i + 1]
                 elif arg.startswith('--model='):
@@ -268,6 +275,7 @@ class Relay:
                                old_pane=os.environ['HERDR_PANE_ID'],
                                herdr_session=os.environ.get('HERDR_SESSION') or 'default')
             self.save('requested')
+            request.unlink(missing_ok=True)
             put(self.directory / ('session-' + sid), self.ticket['nonce'])
             with (self.directory / 'controller.log').open('a') as log:
                 subprocess.Popen([sys.executable, '-B', str(Path(__file__).resolve()), '--home',
@@ -345,7 +353,8 @@ class Relay:
         """Short id when Claude lists this session as a daemon background session."""
         result = subprocess.run([self.ticket['claude'], 'agents', '--json'], capture_output=True,
                                 text=True, timeout=30, cwd=self.home)
-        need(result.returncode == 0, f'claude agents failed: {result.stderr or result.stdout}')
+        if result.returncode:
+            return None  # Agent view disabled or unavailable: no background sessions exist.
         for session in json.loads(result.stdout):
             if session.get('sessionId') == self.ticket['sid'] and session.get('kind') == 'background':
                 return session.get('id') or self.ticket['sid'][:8]
