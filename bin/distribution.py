@@ -160,7 +160,7 @@ def installation(args):
     preferences = load(planning_state())
     preferences['language'] = args.language
     save(planning_state(), preferences)
-    print('Installed planning and relay-lite. Configure the Claude hook and enable relay-lite separately.')
+    print('Installed planning and relay-lite. Register relay-check as a Stop hook to enable automatic relays.')
     return doctor(args)
 
 

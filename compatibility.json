@@ -51,12 +51,8 @@
     "implementation": "context-relay-lite",
     "default": "disabled",
     "platform": "Linux",
-    "harness": "Claude",
-    "required_firstmate_files": [
-      "bin/fm-session-lock-lib.sh",
-      "bin/fm-primary-scope-lib.sh"
-    ],
-    "herdr": "required for live handover",
-    "evidence": "measurement smoke with synthetic transcript; installed activation and live handover not verified"
+    "harness": "Claude, Codex",
+    "herdr": "required",
+    "evidence": "unit test with fake herdr; live Claude handover on Linux"
   }
 }

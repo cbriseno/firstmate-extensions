@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""relay-check FIRSTMATE_HOME - Claude or Codex Stop hook for the primary.
+
+When the context of the last model call reaches threshold_tokens in
+FIRSTMATE_HOME/config/relay-lite.json, the stop is blocked (exit 2) and the
+message tells the primary to relay now. Absent config or 0 means off.
+"""
+import json
+import os
+import sys
+
+TAIL_BYTES = 4 << 20
+
+
+def tokens(transcript):
+    """Context of the latest model call in a Claude or Codex transcript."""
+    last = 0
+    with open(transcript, 'rb') as stream:
+        stream.seek(max(0, os.path.getsize(transcript) - TAIL_BYTES))
+        for raw in stream:
+            if b'"usage"' not in raw and b'token_count' not in raw:
+                continue
+            try:
+                row = json.loads(raw)
+            except ValueError:
+                continue
+            message = row.get('message') if isinstance(row.get('message'), dict) else {}
+            payload = row.get('payload') if isinstance(row.get('payload'), dict) else {}
+            if row.get('type') == 'assistant' and not row.get('isSidechain') and isinstance(message.get('usage'), dict):
+                usage = message['usage']  # Claude
+                last = sum(int(usage.get(key) or 0) for key in
+                           ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens')) or last
+            elif row.get('type') == 'event_msg' and payload.get('type') == 'token_count':
+                usage = (payload.get('info') or {}).get('last_token_usage') or {}  # Codex
+                last = int(usage.get('input_tokens') or 0) or last
+    return last
+
+
+def main():
+    home = os.path.realpath(sys.argv[1])
+    payload = json.load(sys.stdin)
+    if (os.environ.get('FM_TASK_ID') or payload.get('stop_hook_active')
+            or os.path.realpath(payload.get('cwd') or os.getcwd()) != home):
+        return 0
+    try:
+        with open(os.path.join(home, 'config/relay-lite.json')) as stream:
+            threshold = int(json.load(stream).get('threshold_tokens') or 0)
+        used = tokens(payload['transcript_path'])
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0
+    if threshold and used >= threshold:
+        print(f'Contexto en {used} tokens, umbral {threshold}: haz el relevo ahora (skill relevo).', file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

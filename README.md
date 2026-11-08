@@ -16,18 +16,17 @@ The runtime is installed under `$XDG_DATA_HOME/firstmate-extensions/runtime` (or
 
 ## Minimal relay
 
-Relay-lite supports Claude on Linux and macOS (not yet verified on a real Mac) with Herdr and a compatible Firstmate home. Installation copies the relay but does not configure hooks or enable it. To use it, configure Claude Stop and PostToolUse hooks to invoke the installed `context-relay-lite/relay-hook` with your Firstmate home as its argument. The hook requires Firstmate's primary-scope and session-lock libraries. Set `config/relay-lite.json` in that home to `{"enabled": true}` to opt in; remove it or set `enabled` to `false` to stop further relay operations. The default threshold is 400000 resident tokens. Optional `threshold_tokens`, `stow_timeout_seconds`, `startup_timeout_seconds`, and `exit_timeout_seconds` settings are documented in `relay.py`.
+The relay replaces a Firstmate primary (Claude or Codex) with a fresh session of the same harness, model and effort, in four steps the primary performs itself:
 
-For measurement only, supply a Claude hook payload on stdin to `context-relay-lite/relay.py --home "$FIRSTMATE_HOME" --dry-run`.
-This does not launch a relay.
-The live handover needs the local Herdr session and a matching primary Claude session.
-A background model with a new hook session ID can still belong to the lock-owning pane client; the hook verifies that relationship before admitting its relay.
-When the threshold is crossed but another live primary owns the home, the hook reports the conflict through Claude's `systemMessage` without replacing that owner.
-The same unchanged conflict or pre-launch error is reported once per session, recorded in `state/relay-lite/controller.log`, and rearmed after recovery.
-Firstmate's normal startup or Stop auto-arm can recover a dead owner's lock; the relay hook never changes lock ownership and retries automatically once ownership is restored.
-See `relay.py --help` for the supported recovery command; never delete the lock or relay ticket manually.
-Handover errors still stop the controller without replay and remain in `controller.log` for inspection.
-Installation does not establish hook trust or native activation.
+1. run `/stow`;
+2. open a sibling Herdr pane;
+3. start the same harness there with the instruction to take the firstmate role;
+4. close its own pane.
+
+Steps 2-4 are `context-relay-lite/relay "$FIRSTMATE_HOME" <claude|codex> <model> <effort>`, run from inside the primary's Herdr pane.
+A relay happens when the captain asks for one, or automatically when the context crosses the threshold: register `context-relay-lite/relay-check "$FIRSTMATE_HOME"` as a Claude or Codex Stop hook, and set `{"threshold_tokens": 300000}` in `config/relay-lite.json`.
+When the latest model call reaches the threshold, the hook blocks the end of the turn and tells the primary to relay now; a missing file or `0` turns it off.
+Installation does not configure hooks; Codex asks once to trust a new hook.
 
 ## License
 
