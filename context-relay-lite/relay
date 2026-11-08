@@ -3,8 +3,9 @@
 # Firstmate primary relay, run by the primary itself after /stow:
 # open a sibling Herdr pane, start the harness there as firstmate, and close
 # this pane (ending this session) only once the new harness is working on that
-# instruction. If it is not working within RELAY_WAIT_SECONDS (600), this pane
-# stays open and the new pane's screen is printed.
+# instruction. If the new harness sits idle for 20 s (a startup dialog waiting
+# for an answer) or is not working within RELAY_WAIT_SECONDS (600), this pane
+# stays open, the new pane's screen is printed, and the exit status is 1.
 set -eu
 home=${1:?firstmate home} harness=${2:?harness: claude or codex} model=${3:?model} effort=${4:?effort}
 pane=${HERDR_PANE_ID:?relay must run inside a Herdr pane}
@@ -20,15 +21,18 @@ cmd+=("$prompt")
 new=$(herdr pane split "$pane" --direction right --cwd "$home" --no-focus |
   python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
 herdr pane run "$new" "cd $(printf %q "$home") && $(printf '%q ' "${cmd[@]}")"
+idle=0
 for _ in $(seq "${RELAY_WAIT_SECONDS:-600}"); do
   state=$(herdr pane get "$new" | python3 -c \
     'import json, sys; p = json.load(sys.stdin)["result"]["pane"]; print(p.get("agent"), p.get("agent_status"))')
   case $state in "$harness working" | "$harness done")
     herdr pane close "$pane"
     exit 0 ;;
+  "$harness idle") idle=$((idle + 1)); [ "$idle" -lt 20 ] || break ;;
+  *) idle=0 ;;
   esac
   sleep 1
 done
-echo "relay: the new $harness in pane $new is not working ($state); this primary stays. Its screen:" >&2
+echo "relay: the new $harness in pane $new is not working ($state); this primary stays. Answer any dialog, then close this pane once it works. Its screen:" >&2
 herdr pane read "$new" --lines 15 >&2 || true
 exit 1

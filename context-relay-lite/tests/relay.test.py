@@ -56,8 +56,8 @@ with tempfile.TemporaryDirectory(prefix='relay-test-') as temporary:
     run = log.read_text().splitlines()[1]
     assert result.returncode == 0 and ' -m ' not in run and 'model_reasoning_effort' not in run and 'codex' in run, run
     log.write_text('')
-    env.update(FAKE_STATUS='idle')  # e.g. stuck on a startup menu
-    result = subprocess.run(['bash', str(here / 'relay'), str(home), 'codex', 'm1', 'low'], env=env, capture_output=True, text=True, timeout=20)
+    env.update(FAKE_STATUS='idle', RELAY_WAIT_SECONDS='600')  # stuck on a startup menu: must exit after ~20 s, not 600
+    result = subprocess.run(['bash', str(here / 'relay'), str(home), 'codex', 'm1', 'low'], env=env, capture_output=True, text=True, timeout=40)
     assert result.returncode == 1 and 'this primary stays' in result.stderr, result
     assert 'pane close old-pane' not in log.read_text(), 'old pane must stay when the new one is not working'
 print('PASS: threshold blocks the stop for Claude and Codex; relay closes the old pane only once the new harness is working')
