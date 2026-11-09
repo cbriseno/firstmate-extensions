@@ -14,7 +14,7 @@ Choose the planning route and coordinate its delivery for the current authorized
 Use `scripts/fm-extension` relative to this loaded skill's directory. The skill
 installer includes a digest-checked runtime copy; in the source tree the launcher
 finds resources from its own location. Do not assume the checkout name or cwd.
-Python 3.11+, Bash for the optional prerequisite wrapper, and POSIX file locking
+Python 3.9+, Bash for the optional prerequisite wrapper, and POSIX file locking
 are required. Use `FM_HOME` or explicit `--home HOME`; identify projects through
 Firstmate's current project record and pass their exact canonical root as `PROJECT`.
 A name mentioned in conversation is a lookup request, never a basename match.

@@ -1,7 +1,8 @@
 # Clean-room installation checks
 
 `bin/clean-room` runs one documented scenario in a disposable bubblewrap Linux
-namespace. Python 3.11+, bubblewrap, Git, flock and declared system tools are required.
+namespace. These checks are optional and Linux-only; they need Python 3.9+, bubblewrap, Git,
+flock and declared system tools.
 The host Linux kernel and Debian userland are reused; this is not cross-platform
 certification or a replacement for publication review.
 

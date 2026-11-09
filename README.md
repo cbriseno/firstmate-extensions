@@ -4,7 +4,7 @@ Optional extensions for [Firstmate](https://github.com/cbriseno/firstmate): scop
 
 ## Installation
 
-Python 3.11+, Git and Bash are required. Install the runtime and planning skills with:
+Python 3.9+, Git and Bash are required. Install the runtime and planning skills with:
 
 ```sh
 bin/fm-extension install --home "$FIRSTMATE_HOME" --harness claude

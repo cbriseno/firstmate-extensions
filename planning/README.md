@@ -10,7 +10,7 @@ not enable Spec Kit, grant native trust, start models, or change delivery author
 
 ## Setup
 
-Requires Python 3.11+ and POSIX file locking. Bash is required for project
+Requires Python 3.9+ and POSIX file locking. Bash is required for project
 verification and the shell wrapper; without it installation-wide status remains
 available. Git and a Firstmate home are required for project identity and scoped
 home/project operations; without them installation-wide planning remains

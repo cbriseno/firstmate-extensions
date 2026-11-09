@@ -71,7 +71,7 @@ def doctor(args):
         warnings = []
     elif sys.platform == 'darwin':
         platform = 'supported by design; macOS acceptance unverified'
-        warnings = ['macOS acceptance has not been recorded', 'Process and terminal safety evidence is unavailable; affected relay operations refuse']
+        warnings = ['macOS acceptance has not been recorded', 'The relay needs Herdr and has not been live-tested on macOS']
     else:
         platform = 'unverified'
         warnings = ['Platform acceptance has not been recorded', 'Process and terminal safety evidence is unavailable; affected relay operations refuse']
@@ -80,7 +80,7 @@ def doctor(args):
     if sys.platform != 'linux' and shutil.which('ps') is None:
         problems.append('ps unavailable: portable process inspection cannot run')
     tools = {
-        'python': {'status': 'available', 'required_for': 'all commands', 'minimum': '3.11'},
+        'python': {'status': 'available', 'required_for': 'all commands', 'minimum': '3.9'},
         'bash': {'status': 'available' if shutil.which('bash') else 'missing', 'required_for': 'relay and planning project verification'},
         'git': {'status': 'available' if shutil.which('git') else 'missing', 'required_for': 'project identity and relay; installation-wide planning remains available'},
         'ps': {'status': 'available' if shutil.which('ps') else 'missing', 'required_for': 'portable process inspection outside Linux'},

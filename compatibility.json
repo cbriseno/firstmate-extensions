@@ -2,10 +2,10 @@
   "schema": 1,
   "module": "firstmate-extensions",
   "resolver_version": "1.0.0",
-  "minimum_python": "3.11",
+  "minimum_python": "3.9",
   "platform": {
     "linux": "accepted baseline; local fixtures and clean-clone checks",
-    "macos": "planning and settings supported by design, unverified; relay unavailable because POSIX ps cannot verify process identity and terminal input safety",
+    "macos": "planning and settings supported by design, unverified; relay works where Herdr is available, not live-tested; optional clean-room checks are Linux-only (bubblewrap)",
     "other": "unverified"
   },
   "firstmate_surface": "scoped skills and durable task briefs; no dispatcher hooks or tracked core edits",
@@ -50,7 +50,7 @@
   "relay": {
     "implementation": "context-relay-lite",
     "default": "disabled",
-    "platform": "Linux",
+    "platform": "Linux; macOS where Herdr is available (not live-tested)",
     "harness": "Claude, Codex",
     "herdr": "required",
     "evidence": "unit test with fake herdr; live Claude handover on Linux"
