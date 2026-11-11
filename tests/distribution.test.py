@@ -93,12 +93,18 @@ class DoctorPlatformTest(unittest.TestCase):
                 result = json.loads(output.getvalue())
                 self.assertEqual(result['platform'], expected)
                 self.assertEqual(bool(result['warnings']), warning)
-                self.assertEqual(result['relay'], 'prerequisites present' if platform == 'linux' else 'unavailable')
-                if platform != 'linux':
+                self.assertEqual(result['relay'], 'unavailable' if platform == 'freebsd' else 'prerequisites present')
+                if platform == 'freebsd':
                     self.assertEqual(result['relay_diagnostic']['code'], 'unsupported_platform')
                     args.require_relay = True
                     with contextlib.redirect_stdout(io.StringIO()):
                         self.assertEqual(module.doctor(args), 2)
+                    args.require_relay = False
+                else:
+                    self.assertIsNone(result['relay_diagnostic'])
+                    args.require_relay = True
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        self.assertEqual(module.doctor(args), 0)
                     args.require_relay = False
                 for name in ('python', 'bash', 'git', 'ps', 'firstmate', 'herdr', 'codex', 'claude'):
                     self.assertIn('version', result['tools'][name])

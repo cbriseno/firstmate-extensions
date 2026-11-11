@@ -26,6 +26,7 @@ The relay replaces a Firstmate primary (Claude or Codex) with a fresh session of
 Steps 2-4 are `context-relay-lite/relay "$FIRSTMATE_HOME" <claude|codex> <model|-> <effort|->`, run from inside the primary's Herdr pane; `-` keeps the target harness's default.
 A relay happens when the captain asks for one, or automatically when the context crosses the threshold: register `context-relay-lite/relay-check "$FIRSTMATE_HOME"` as a Claude or Codex Stop hook, and set `{"threshold_tokens": 300000}` in `config/relay-lite.json`.
 When the latest model call reaches the threshold, the hook blocks the end of the turn and tells the primary to relay now; a missing file or `0` turns it off.
+In Firstmate, the `/relay` skill handles chat requests such as “releva ahora” and “programa el relevo a 200K”: it runs `/stow` before a requested relay and changes the configured threshold when asked.
 Installation does not configure hooks; Codex asks once to trust a new hook.
 
 ## License

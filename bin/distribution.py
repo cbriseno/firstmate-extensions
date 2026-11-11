@@ -106,8 +106,9 @@ def doctor(args):
         tools[name] = {'status': 'available' if shutil.which(name) else 'missing',
                        'version': tool_version(name), 'category': 'optional by feature',
                        'required_for': 'native provider hooks and live relay'}
-    relay_available = not problems and sys.platform == 'linux'
-    relay_diagnostic = None if sys.platform == 'linux' else {'code': 'unsupported_platform', 'message': 'Relay requires Linux'}
+    relay_available = not problems and sys.platform in ('linux', 'darwin')
+    relay_diagnostic = None if relay_available or sys.platform in ('linux', 'darwin') else {
+        'code': 'unsupported_platform', 'message': 'Relay supports Linux and macOS'}
     print(json.dumps({'ok': not args.require_relay or relay_available, 'version': VERSION,
                       'vendor_verified': True, 'installed': installed,
                       'planning': 'available', 'relay': 'prerequisites present' if relay_available else 'unavailable',
