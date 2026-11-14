@@ -53,6 +53,6 @@
     "platform": "Linux; macOS where Herdr is available (not live-tested)",
     "harness": "Claude, Codex",
     "herdr": "required",
-    "evidence": "unit test with fake herdr; live Claude handover on Linux"
+    "evidence": "captured Claude/Codex startup dialogs, startup-mark regression, and live startup in an isolated Herdr lab on Linux"
   }
 }

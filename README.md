@@ -21,9 +21,10 @@ The relay replaces a Firstmate primary (Claude or Codex) with a fresh session of
 1. run `/stow`;
 2. open a sibling Herdr pane;
 3. start the same harness there with the instruction to take the firstmate role;
-4. close its own pane once the new harness is working on that instruction; otherwise stay and show the new pane's screen.
+4. read and answer authorized startup dialogs, then close its own pane only after the successor writes its start mark before waiting for the old lock.
 
 Steps 2-4 are `context-relay-lite/relay "$FIRSTMATE_HOME" <claude|codex> <model|-> <effort|->`, run from inside the primary's Herdr pane; `-` keeps the target harness's default.
+If startup needs attention, the command returns the new pane's screen and an exact `--watch` command. Resolve the dialog and run that command to continue with the same successor. A login or a startup still blocked after 60 seconds keeps the outgoing primary open; it must use its configured alert route with the blocking screen. Herdr `working` or `done` alone never permits closing the old pane.
 A relay happens when the captain asks for one, or automatically when the context crosses the threshold: register `context-relay-lite/relay-check "$FIRSTMATE_HOME"` as a Claude or Codex Stop hook, and set `{"threshold_tokens": 300000}` in `config/relay-lite.json`.
 When the latest model call reaches the threshold, the hook blocks the end of the turn and tells the primary to relay now; a missing file or `0` turns it off.
 In Firstmate, the `/relay` skill handles chat requests such as “releva ahora” and “programa el relevo a 200K”: it runs `/stow` before a requested relay and changes the configured threshold when asked.

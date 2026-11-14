@@ -1,42 +1,50 @@
 #!/usr/bin/env bash
 # relay FIRSTMATE_HOME HARNESS MODEL EFFORT   ('-' keeps the harness default)
-# Firstmate primary relay, run by the primary itself after /stow:
-# open a sibling Herdr pane, start the harness there as firstmate, and close
-# this pane (ending this session) only once the new harness is working on that
-# instruction. If the new harness sits idle for 20 s (a startup dialog waiting
-# for an answer) or is not working within RELAY_WAIT_SECONDS (600), this pane
-# stays open, the new pane's screen is printed, and the exit status is 1.
+# relay --watch FIRSTMATE_HOME NEW_PANE START_FILE
+# Run after /stow. The successor's first foreground command writes START_FILE
+# before waiting for the old primary's process/lock. Only that mark permits
+# closing this pane; Herdr working/done alone can describe a startup dialog.
+# An unstarted successor returns 1 after RELAY_WAIT_SECONDS (default 5), with
+# its screen and the exact --watch command. The outgoing primary must read and
+# answer authorized startup dialogs, then watch again, keeping this same pane.
+# After 60 s, or immediately for login, keep the primary and use its configured
+# alert route with the blocking screen. Never start a second successor on retry.
 set -eu
-home=${1:?firstmate home} harness=${2:?harness: claude or codex} model=${3:?model} effort=${4:?effort}
 pane=${HERDR_PANE_ID:?relay must run inside a Herdr pane}
-# The old session holds the lock until it exits, so this session opened read-only:
-# its first step waits for that process and runs session start in the foreground.
-old=$(herdr pane process-info --pane "$pane" |
-  python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["process_info"]["foreground_processes"][0]["pid"])')
-prompt="Take the firstmate role. First run this in the foreground, in the host context outside any tool sandbox (the lock follows real process ancestry), with a 15 minute tool timeout, because the previous primary held the lock when this session opened: \`(cd $home && while kill -0 $old 2>/dev/null; do sleep 1; done && FM_SESSION_START_TIMEOUT=600 bin/fm-session-start.sh)\` Then read the stow result and the current state, and keep every pending item."
-case $harness in
-  claude) cmd=(claude) m=(--model "$model") e=(--effort "$effort") ;;
-  codex) cmd=(codex --no-daemon) m=(-m "$model") e=(-c "model_reasoning_effort=$effort") ;;  # own process tree, so Firstmate can anchor the lock
-  *) echo "relay: unsupported harness '$harness' (claude or codex)" >&2; exit 2 ;;
-esac
-[ "$model" = - ] || cmd+=("${m[@]}")
-[ "$effort" = - ] || cmd+=("${e[@]}")
-cmd+=("$prompt")
-new=$(herdr pane split "$pane" --direction right --cwd "$home" --no-focus |
-  python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-herdr pane run "$new" "cd $(printf %q "$home") && $(printf '%q ' "${cmd[@]}")"
-idle=0
-for _ in $(seq "${RELAY_WAIT_SECONDS:-600}"); do
-  state=$(herdr pane get "$new" | python3 -c \
-    'import json, sys; p = json.load(sys.stdin)["result"]["pane"]; print(p.get("agent"), p.get("agent_status"))')
-  case $state in "$harness working" | "$harness done")
-    herdr pane close "$pane"
-    exit 0 ;;
-  "$harness idle") idle=$((idle + 1)); [ "$idle" -lt 20 ] || break ;;
-  *) idle=0 ;;
+if [ "${1:-}" = --watch ]; then
+  home=${2:?firstmate home} new=${3:?new pane} started=${4:?start file}
+  case "$started" in "$home"/state/relay-start.*) ;; *) echo 'relay: wrong start file' >&2; exit 2 ;; esac
+  [ "$new" != "$pane" ] && [ -f "$started" ] || { echo 'relay: invalid successor or missing start file' >&2; exit 2; }
+else
+  home=${1:?firstmate home} harness=${2:?harness: claude or codex} model=${3:?model} effort=${4:?effort}
+  case $harness in
+    claude) cmd=(claude) m=(--model "$model") e=(--effort "$effort") ;;
+    codex) cmd=(codex --no-daemon) m=(-m "$model") e=(-c "model_reasoning_effort=$effort") ;;
+    *) echo "relay: unsupported harness '$harness' (claude or codex)" >&2; exit 2 ;;
   esac
+  old=$(herdr pane process-info --pane "$pane" |
+    python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["process_info"]["foreground_processes"][0]["pid"])')
+  mkdir -p "$home/state"
+  started=$(mktemp "$home/state/relay-start.XXXXXX")
+  printf -v start_command 'printf started > %q && while kill -0 %q 2>/dev/null; do sleep 1; done && FM_SESSION_START_TIMEOUT=600 bin/fm-session-start.sh' "$started" "$old"
+  printf -v start_command '(cd %q && %s)' "$home" "$start_command"
+  prompt="Take the firstmate role. Your FIRST action must run this exact foreground command, in the host context outside any tool sandbox (the lock follows real process ancestry), with a 15 minute tool timeout: \`$start_command\`. It marks that you started before waiting for the previous primary to release its lock. Then read the stow result and current state, and keep every pending item."
+  [ "$model" = - ] || cmd+=("${m[@]}")
+  [ "$effort" = - ] || cmd+=("${e[@]}")
+  cmd+=("$prompt")
+  new=$(herdr pane split "$pane" --direction right --cwd "$home" --no-focus |
+    python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
+  herdr pane run "$new" "cd $(printf %q "$home") && $(printf '%q ' "${cmd[@]}")"
+fi
+for ((i=0; i<${RELAY_WAIT_SECONDS:-5}; i++)); do
+  if [ "$(cat "$started")" = started ]; then
+    herdr pane close "$pane"
+    rm -f -- "$started"
+    exit 0
+  fi
   sleep 1
 done
-echo "relay: the new $harness in pane $new is not working ($state); this primary stays. Answer any dialog, then close this pane once it works. Its screen:" >&2
-herdr pane read "$new" --lines 15 >&2 || true
+printf 'relay: successor in pane %s has not written its start mark; this primary stays. Read and answer authorized startup dialogs, then resume this SAME successor:\n' "$new" >&2
+printf '%q --watch %q %q %q\n' "$0" "$home" "$new" "$started" >&2
+herdr pane read "$new" --source recent-unwrapped --lines 60 >&2 || true
 exit 1
