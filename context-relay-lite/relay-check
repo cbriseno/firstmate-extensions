@@ -1,55 +1,137 @@
 #!/usr/bin/env python3
-"""relay-check FIRSTMATE_HOME - Claude or Codex Stop hook for the primary.
-
-When the context of the last model call reaches threshold_tokens in
-FIRSTMATE_HOME/config/relay-lite.json, the stop is blocked (exit 2) and the
-message tells the primary to relay now. Absent config or 0 means off.
-"""
+"""Stop hook: evaluate the current session against relay-lite thresholds."""
 import json
+import math
 import os
 import sys
 
 TAIL_BYTES = 4 << 20
 
 
-def tokens(transcript):
-    """Context of the latest model call in a Claude or Codex transcript."""
-    last = 0
+def measurement(transcript):
+    """Return the last call's harness, tokens and reported window; unknown is None."""
+    harness = used = window = model = None
     with open(transcript, 'rb') as stream:
         stream.seek(max(0, os.path.getsize(transcript) - TAIL_BYTES))
         for raw in stream:
-            if b'"usage"' not in raw and b'token_count' not in raw:
-                continue
             try:
                 row = json.loads(raw)
-            except ValueError:
+            except (ValueError, UnicodeDecodeError):
                 continue
-            message = row.get('message') if isinstance(row.get('message'), dict) else {}
+            if not isinstance(row, dict):
+                continue
             payload = row.get('payload') if isinstance(row.get('payload'), dict) else {}
-            if row.get('type') == 'assistant' and not row.get('isSidechain') and isinstance(message.get('usage'), dict):
-                usage = message['usage']  # Claude
-                last = sum(int(usage.get(key) or 0) for key in
-                           ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens')) or last
+            message = row.get('message') if isinstance(row.get('message'), dict) else {}
+            if row.get('type') == 'turn_context' and payload.get('model'):
+                if model != payload['model']:
+                    used = window = None
+                model = payload['model']
             elif row.get('type') == 'event_msg' and payload.get('type') == 'token_count':
-                usage = (payload.get('info') or {}).get('last_token_usage') or {}  # Codex
-                last = int(usage.get('input_tokens') or 0) or last
-    return last
+                info = payload.get('info') if isinstance(payload.get('info'), dict) else {}
+                usage = info.get('last_token_usage') if isinstance(info.get('last_token_usage'), dict) else {}
+                harness = 'codex'
+                used = number(usage.get('input_tokens'))
+                window = number(info.get('model_context_window'))
+            elif row.get('type') == 'assistant' and not row.get('isSidechain'):
+                harness = 'claude'
+                current_model = message.get('model')
+                if current_model:
+                    model = current_model
+                usage = message.get('usage')
+                if isinstance(usage, dict):
+                    values = [number(usage.get(key)) for key in
+                              ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens')]
+                    used = sum(value or 0 for value in values) if any(value is not None for value in values) else None
+                else:
+                    used = None
+                # Claude transcripts do not report a model window with this usage.
+                window = None
+    return harness, model, used, window
+
+
+def number(value):
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0:
+        return value
+    return None
+
+
+def evaluate(home, payload):
+    role = 'worker' if os.environ.get('FM_TASK_ID') else 'primary'
+    result = {'schema': 'relay-lite.check.v1', 'role': role, 'harness': None,
+              'model': None, 'used_tokens': None, 'window_tokens': None,
+              'percent_used': None, 'threshold_tokens': None, 'threshold_percent': None,
+              'reached': [], 'state': 'unknown', 'reason': None}
+    if payload.get('stop_hook_active'):
+        result.update(state='skipped', reason='stop_hook_active')
+        return result
+    if role == 'primary' and os.path.realpath(payload.get('cwd') or os.getcwd()) != home:
+        result.update(state='skipped', reason='outside_primary_home')
+        return result
+    try:
+        with open(os.path.join(home, 'config/relay-lite.json')) as stream:
+            config = json.load(stream)
+        harness, model, used, window = measurement(payload['transcript_path'])
+        reported = payload.get('context_window')
+        if not window and model and isinstance(reported, dict) and reported.get('model') == model:
+            window = number(reported.get('tokens'))
+        result.update(harness=harness, model=model, used_tokens=used, window_tokens=window)
+        if harness is None or used is None:
+            result['reason'] = 'measurement_unavailable'
+            return result
+        thresholds = config.get('thresholds', {}).get(role, {}).get(harness, {})
+        limit = number(thresholds.get('tokens'))
+        if 'tokens' not in thresholds and role == 'primary':
+            try:
+                limit = number(int(config.get('threshold_tokens') or 0))
+            except (ValueError, TypeError, OverflowError):
+                limit = None
+        percent = number(thresholds.get('percent'))
+        invalid = (('tokens' in thresholds and limit is None) or
+                   ('percent' in thresholds and (percent is None or percent > 100)))
+        if percent is not None and percent > 100:
+            percent = None
+        result.update(threshold_tokens=limit, threshold_percent=percent,
+                      percent_used=used * 100 / window if window else None)
+        if limit is not None and limit > 0 and used >= limit:
+            result['reached'].append('tokens')
+        if percent is not None and percent > 0 and window and used * 100 >= percent * window:
+            result['reached'].append('percent')
+        result['state'] = 'reached' if result['reached'] else 'below'
+        if invalid:
+            result['reason'] = 'invalid_threshold'
+            if not result['reached']:
+                result['state'] = 'unknown'
+        elif percent and not window:
+            result['reason'] = 'window_unavailable'
+            if not result['reached']:
+                result['state'] = 'unknown'
+        return result
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError, OverflowError):
+        result['reason'] = 'input_unavailable'
+        return result
 
 
 def main():
-    home = os.path.realpath(sys.argv[1])
-    payload = json.load(sys.stdin)
-    if (os.environ.get('FM_TASK_ID') or payload.get('stop_hook_active')
-            or os.path.realpath(payload.get('cwd') or os.getcwd()) != home):
-        return 0
+    json_output = len(sys.argv) > 1 and sys.argv[1] == '--json'
     try:
-        with open(os.path.join(home, 'config/relay-lite.json')) as stream:
-            threshold = int(json.load(stream).get('threshold_tokens') or 0)
-        used = tokens(payload['transcript_path'])
-    except (OSError, ValueError, KeyError, TypeError):
+        home = os.path.realpath(sys.argv[2] if json_output else sys.argv[1])
+        try:
+            payload = json.load(sys.stdin)
+        except ValueError:
+            payload = {}
+        result = evaluate(home, payload if isinstance(payload, dict) else {})
+    except (ValueError, TypeError, IndexError):
         return 0
-    if threshold and used >= threshold:
-        print(f'Context is {used} tokens, threshold {threshold}: relay now (relay skill).', file=sys.stderr)
+    if json_output:
+        print(json.dumps(result, allow_nan=False))
+        return 0
+    if result['state'] == 'reached':
+        detail = str(result['used_tokens']) + ' tokens'
+        detail += (' of ' + str(result['window_tokens'])) if result['window_tokens'] else ' (window unknown)'
+        if result['role'] == 'worker':
+            print(f'Context is {detail}: relay now. Finish the current operation safely, write a handoff note and ask the primary to relaunch this task with fm-control.sh --note-file.', file=sys.stderr)
+        else:
+            print(f'Context is {detail}: relay now (relay skill).', file=sys.stderr)
         return 2
     return 0
 

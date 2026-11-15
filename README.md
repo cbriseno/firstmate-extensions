@@ -25,9 +25,36 @@ The relay replaces a Firstmate primary (Claude or Codex) with a fresh session of
 
 Steps 2-4 are `context-relay-lite/relay "$FIRSTMATE_HOME" <claude|codex> <model|-> <effort|->`, run from inside the primary's Herdr pane; `-` keeps the target harness's default.
 If startup needs attention, the command returns the new pane's screen and an exact `--watch` command. Resolve the dialog and run that command to continue with the same successor. A login or a startup still blocked after 60 seconds keeps the outgoing primary open; it must use its configured alert route with the blocking screen. Herdr `working` or `done` alone never permits closing the old pane.
-A relay happens when the captain asks for one, or automatically when the context crosses the threshold: register `context-relay-lite/relay-check "$FIRSTMATE_HOME"` as a Claude or Codex Stop hook, and set `{"threshold_tokens": 300000}` in `config/relay-lite.json`.
-When the latest model call reaches the threshold, the hook blocks the end of the turn and tells the primary to relay now; a missing file or `0` turns it off.
-In Firstmate, the `/relay` skill handles chat requests such as “releva ahora” and “programa el relevo a 200K”: it runs `/stow` before a requested relay and changes the configured threshold when asked.
+Register `context-relay-lite/relay-check "$FIRSTMATE_HOME"` as a Claude or Codex Stop hook to check the latest model call.
+The checker reads `config/relay-lite.json`; the existing `{"threshold_tokens": 250000}` remains effective for both primary harnesses when no per-harness token value is set.
+`context-relay-lite/relay-migrate "$FIRSTMATE_HOME"` keeps that scalar as the primary fallback, sets worker values to zero, retains other fields and copies the previous relay-lite file to `relay-lite.json.before-migration`.
+It also archives the contents of `config/context-relay.json` and `config/umbrales-relevo` under the informational `legacy` key and leaves those files in place for existing readers.
+Compaction predicates, model-specific values and old conditional thresholds cannot be converted into equivalent independent limits automatically, so the archived values do not activate thresholds.
+Migration does not install hooks or activate workers.
+
+The configuration contract is:
+
+```json
+{"thresholds": {
+  "primary": {"codex": {"percent": 0, "tokens": 250000}, "claude": {"percent": 0, "tokens": 250000}},
+  "worker":  {"codex": {"percent": 0, "tokens": 0}, "claude": {"percent": 0, "tokens": 0}}
+}}
+```
+
+Each pair is independent: `0` disables that axis, and reaching either enabled limit triggers the hook.
+Missing worker values are disabled; a missing primary token value falls back to the scalar.
+These numbers illustrate a migration, not recommended defaults; worker thresholds require a pilot and Claude calibration.
+The checker uses the latest input and cache tokens and a window reported for the current model, never a model-name guess.
+Codex transcript token-count events include the window when available; if a producer has another actual window measurement it may include `"context_window":{"model":"MODEL_ID","tokens":N}` in the hook payload, which is accepted only when the transcript identifies that same model.
+Without a window, percentage is unknown and the token limit still applies; without usage both are unknown.
+A model change invalidates an earlier measurement.
+
+For integrations, `relay-check --json "$FIRSTMATE_HOME"` consumes the same hook payload on stdin and returns `relay-lite.check.v1` JSON with `role`, `harness`, `model`, `used_tokens`, `window_tokens`, `percent_used`, `threshold_tokens`, `threshold_percent`, `reached` (the triggered axes), `state` (`reached`, `below`, `unknown`, or `skipped`) and `reason`.
+Unknown numeric values are JSON null; a missing window sets `reason` to `window_unavailable` and state to `unknown` unless a token limit was reached.
+`FM_TASK_ID` selects worker; otherwise the checker only accepts a primary in its Firstmate home.
+Without `--json`, a reached limit exits 2 with an instruction on stderr and all other results exit 0, as required by the Stop hook; `stop_hook_active` is skipped.
+The worker instruction requests a safe handoff, and Firstmate owns hook registration, relaunch and notification to the primary.
+The primary uses the existing `/relay` skill.
 Installation does not configure hooks; Codex asks once to trust a new hook.
 
 ## License

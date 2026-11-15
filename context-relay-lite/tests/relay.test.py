@@ -33,6 +33,92 @@ with tempfile.TemporaryDirectory(prefix='relay-test-') as temporary:
         assert check(row, 290000, stop_hook_active=True).returncode == 0, 'never block twice in a row'
         assert check(row, 290000, cwd='/').returncode == 0, 'only the primary in its home'
 
+    # Exercise each independent axis through the hook, with no inferred window.
+    transcript = home / 'session.jsonl'
+    config = home / 'config/relay-lite.json'
+    def matrix_check(role, row, settings, prefix=(), **extra):
+        config.write_text(json.dumps({'thresholds': settings}))
+        transcript.write_text(''.join(json.dumps(item) + '\n' for item in (*prefix, row)))
+        payload = {'transcript_path': str(transcript), 'cwd': str(home), **extra}
+        test_env = env.copy()
+        if role == 'worker':
+            test_env['FM_TASK_ID'] = 'example'
+        return subprocess.run([sys.executable, str(here / 'relay-check'), str(home)],
+                              input=json.dumps(payload), env=test_env, capture_output=True, text=True, timeout=10)
+
+    rows = {'codex': {'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {
+        'last_token_usage': {'input_tokens': 75}, 'model_context_window': 100}}},
+        'claude': {'type': 'assistant', 'message': {'model': 'claude-test', 'usage': {'input_tokens': 75}}}}
+    for role in ('primary', 'worker'):
+        for harness in ('codex', 'claude'):
+            for axis in ('tokens', 'percent'):
+                settings = {r: {h: {'tokens': 0, 'percent': 0} for h in rows} for r in ('primary', 'worker')}
+                settings[role][harness][axis] = 70
+                result = matrix_check(role, rows[harness], settings)
+                if harness == 'claude' and axis == 'percent':
+                    assert result.returncode == 0, result.stderr  # no window in transcript
+                    result = matrix_check(role, rows[harness], settings,
+                                          context_window={'model': 'claude-test', 'tokens': 100})
+                    assert matrix_check(role, rows[harness], settings,
+                                        context_window={'model': 'other', 'tokens': 100}).returncode == 0
+                assert result.returncode == 2, (role, harness, axis, result.stderr)
+                other = 'worker' if role == 'primary' else 'primary'
+                assert matrix_check(other, rows[harness], settings).returncode == 0
+    settings = {'primary': {'codex': {'percent': 70, 'tokens': 0}}}
+    absent = {'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {
+        'last_token_usage': {'input_tokens': 75}}}}
+    assert matrix_check('primary', absent, settings).returncode == 0
+    changed = {'type': 'turn_context', 'payload': {'model': 'new'}}
+    # A model change after a measurement invalidates both the usage and window.
+    transcript.write_text('\n'.join(map(json.dumps, [
+        {'type': 'turn_context', 'payload': {'model': 'old'}}, rows['codex'], changed])) + '\n')
+    config.write_text(json.dumps({'thresholds': settings}))
+    result = subprocess.run([sys.executable, str(here / 'relay-check'), str(home)],
+                            input=json.dumps({'transcript_path': str(transcript), 'cwd': str(home)}),
+                            env=env, capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    # A tail may omit the old model record; do not reuse that unbound window.
+    transcript.write_text('\n'.join(map(json.dumps, [rows['codex'], changed])) + '\n')
+    result = subprocess.run([sys.executable, str(here / 'relay-check'), str(home)],
+                            input=json.dumps({'transcript_path': str(transcript), 'cwd': str(home)}),
+                            env=env, capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+
+    # Migration preserves current activation, archives legacy data and is repeatable.
+    legacy_json = {'relay_policy': {'claude': {'compactions': 2, 'min_context_percent': 80}}}
+    legacy_text = 'codex: compactaciones:4\nclaude: umbral:400000\n'
+    config.write_text(json.dumps({'threshold_tokens': 250000, 'enabled': True}))
+    (home / 'config/context-relay.json').write_text(json.dumps(legacy_json))
+    (home / 'config/umbrales-relevo').write_text(legacy_text)
+    migrate = [sys.executable, str(here / 'relay-migrate'), str(home)]
+    subprocess.run(migrate, check=True, capture_output=True, text=True, timeout=10)
+    migrated = json.loads(config.read_text())
+    assert 'tokens' not in migrated['thresholds']['primary']['codex']
+    assert 'tokens' not in migrated['thresholds']['primary']['claude']
+    assert migrated['threshold_tokens'] == 250000
+    assert migrated['thresholds']['worker']['codex']['tokens'] == 0
+    assert migrated['thresholds']['worker']['claude']['percent'] == 0
+    assert migrated['legacy'] == {'context-relay.json': legacy_json, 'umbrales-relevo': legacy_text}
+    assert json.loads((home / 'config/relay-lite.json.before-migration').read_text())['threshold_tokens'] == 250000
+    subprocess.run(migrate, check=True, capture_output=True, text=True, timeout=10)
+    assert json.loads(config.read_text()) == migrated
+    assert (home / 'config/umbrales-relevo').read_text() == legacy_text
+    # Existing scalar editor remains effective after migration until explicitly overridden.
+    migrated['threshold_tokens'] = 70
+    config.write_text(json.dumps(migrated))
+    transcript.write_text(json.dumps(rows['codex']) + '\n')
+    live = subprocess.run([sys.executable, str(here / 'relay-check'), str(home)],
+                          input=json.dumps({'transcript_path': str(transcript), 'cwd': str(home)}),
+                          env=env, capture_output=True, text=True, timeout=10)
+    assert live.returncode == 2, live.stderr
+    migrated['threshold_tokens'] = 250000
+    config.write_text(json.dumps(migrated))
+    result = subprocess.run([sys.executable, str(here / 'relay-check'), '--json', str(home)],
+                            input=json.dumps({'transcript_path': str(transcript), 'cwd': str(home)}),
+                            env=env, capture_output=True, text=True, timeout=10)
+    diagnostic = json.loads(result.stdout)
+    assert diagnostic['schema'] == 'relay-lite.check.v1' and diagnostic['state'] in ('below', 'unknown')
+
     # Rendered text captured from Claude 2.1.325 and Codex 0.169.0 on
     # 2026-11-14 in an isolated Herdr session; workspace paths normalized.
     log = home / 'herdr.log'

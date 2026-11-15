@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""Preserve existing relay settings in relay-lite; never remove legacy files."""
+import json
+import shutil
+import sys
+from pathlib import Path
+
+
+def migrate(home):
+    config = Path(home) / 'config'
+    path = config / 'relay-lite.json'
+    current = json.loads(path.read_text()) if path.exists() else {}
+    if not isinstance(current, dict):
+        raise ValueError('relay-lite.json must contain an object')
+    legacy = {}
+    old_json = config / 'context-relay.json'
+    old_text = config / 'umbrales-relevo'
+    if old_json.exists():
+        legacy['context-relay.json'] = json.loads(old_json.read_text())
+    if old_text.exists():
+        legacy['umbrales-relevo'] = old_text.read_text()
+    scalar = int(current.get('threshold_tokens') or 0)
+    if scalar < 0:
+        raise ValueError('threshold_tokens must be nonnegative')
+    thresholds = current.setdefault('thresholds', {})
+    for role in ('primary', 'worker'):
+        roles = thresholds.setdefault(role, {})
+        for harness in ('codex', 'claude'):
+            values = roles.setdefault(harness, {})
+            if role == 'worker':
+                values.setdefault('tokens', 0)
+            values.setdefault('percent', 0)
+    if legacy:
+        current.setdefault('legacy', {}).update(legacy)
+    if path.exists():
+        backup = path.with_name('relay-lite.json.before-migration')
+        if not backup.exists():
+            shutil.copy2(path, backup)
+    config.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(current, indent=2, ensure_ascii=False) + '\n')
+    print('relay-lite settings migrated; legacy files retained')
+
+
+if __name__ == '__main__':
+    try:
+        migrate(sys.argv[1])
+    except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError) as exc:
+        print('relay-migrate: ' + str(exc), file=sys.stderr)
+        sys.exit(1)
