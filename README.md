@@ -46,6 +46,12 @@ Missing worker values are disabled; a missing primary token value falls back to 
 These numbers illustrate a migration, not recommended defaults; worker thresholds require a pilot and Claude calibration.
 The checker uses the latest input and cache tokens and a window reported for the current model, never a model-name guess.
 Codex transcript token-count events include the window when available; if a producer has another actual window measurement it may include `"context_window":{"model":"MODEL_ID","tokens":N}` in the hook payload, which is accepted only when the transcript identifies that same model.
+Claude integrations may supply the native statusline JSON as `statusline` in that payload.
+Its `context_window.context_window_size` is accepted only with a session id, the same transcript path and matching `model.id`; usage still comes from the latest transcript call.
+Firstmate captures that JSON through a per-launch statusline wrapper while preserving the configured display.
+Each harness pair may additionally contain `models`, keyed by exact measured model id, whose `tokens` and/or `percent` override that pair for the current model.
+For example, `"claude":{"tokens":0,"percent":0,"models":{"claude-opus-5-5":{"tokens":250000}}}` enables only that calibrated model.
+Unlisted models retain the pair's limits, so keeping the pair disabled avoids applying a calibration to unknown models.
 Without a window, percentage is unknown and the token limit still applies; without usage both are unknown.
 A model change invalidates an earlier measurement.
 

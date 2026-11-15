@@ -65,6 +65,21 @@ with tempfile.TemporaryDirectory(prefix='relay-test-') as temporary:
                 other = 'worker' if role == 'primary' else 'primary'
                 assert matrix_check(other, rows[harness], settings).returncode == 0
     settings = {'primary': {'codex': {'percent': 70, 'tokens': 0}}}
+    # Native statusline evidence binds a measured window to this transcript/model.
+    native = {'session_id': 'real-session', 'transcript_path': str(transcript),
+              'model': {'id': 'claude-test'},
+              'context_window': {'context_window_size': 100, 'used_percentage': 75}}
+    limits = {'worker': {'claude': {'tokens': 0, 'percent': 0,
+              'models': {'claude-test': {'tokens': 70}, 'different': {'tokens': 90}}}}}
+    assert matrix_check('worker', rows['claude'], limits, statusline=native).returncode == 2
+    limits['worker']['claude']['models']['claude-test'] = {'percent': 70}
+    assert matrix_check('worker', rows['claude'], limits, statusline=native).returncode == 2
+    for altered in ({'model': {'id': 'other'}}, {'transcript_path': '/other'}, {'session_id': None}):
+        assert matrix_check('worker', rows['claude'], limits,
+                            statusline={**native, **altered}).returncode == 0
+    unknown = {'type': 'assistant', 'message': {'model': 'uncalibrated', 'usage': {'input_tokens': 75}}}
+    assert matrix_check('worker', unknown, limits, statusline=native).returncode == 0
+    assert matrix_check('primary', rows['claude'], limits, statusline=native).returncode == 0
     absent = {'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {
         'last_token_usage': {'input_tokens': 75}}}}
     assert matrix_check('primary', absent, settings).returncode == 0

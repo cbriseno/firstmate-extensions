@@ -74,11 +74,22 @@ def evaluate(home, payload):
         reported = payload.get('context_window')
         if not window and model and isinstance(reported, dict) and reported.get('model') == model:
             window = number(reported.get('tokens'))
+        statusline = payload.get('statusline')
+        if harness == 'claude' and isinstance(statusline, dict):
+            source = statusline.get('transcript_path')
+            native_model = statusline.get('model') or {}
+            native_window = statusline.get('context_window') or {}
+            if (source and os.path.realpath(source) == os.path.realpath(payload['transcript_path'])
+                    and native_model.get('id') == model and statusline.get('session_id')):
+                window = number(native_window.get('context_window_size'))
         result.update(harness=harness, model=model, used_tokens=used, window_tokens=window)
         if harness is None or used is None:
             result['reason'] = 'measurement_unavailable'
             return result
         thresholds = config.get('thresholds', {}).get(role, {}).get(harness, {})
+        models = thresholds.get('models', {})
+        if model in models:
+            thresholds = {**thresholds, **models[model]}
         limit = number(thresholds.get('tokens'))
         if 'tokens' not in thresholds and role == 'primary':
             try:
