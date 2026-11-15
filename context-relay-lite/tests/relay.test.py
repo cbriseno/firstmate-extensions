@@ -175,6 +175,15 @@ elif command == 'run' and os.environ['FAKE_STARTED'] == 'yes':
     run = log.read_text().splitlines()[2]
     assert result.returncode == 0 and ' -m ' not in run and 'model_reasoning_effort' not in run, run
 
+    (home / 'config/primary-effort').write_text('low\n')
+    log.write_text('')
+    result = subprocess.run(command + ['claude', 'm1', 'configured'], env=env, capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0 and '--effort low' in log.read_text(), result.stderr
+    (home / 'config/primary-effort').write_text('invalid\n')
+    log.write_text('')
+    result = subprocess.run(command + ['claude', 'm1', 'configured'], env=env, capture_output=True, text=True, timeout=10)
+    assert result.returncode == 2 and not log.read_text(), result.stderr
+
     env['FAKE_STARTED'] = 'no'
     for harness in ('claude', 'codex'):
         env.update(FAKE_AGENT=harness, FAKE_SCREEN=str(here / 'tests/startup-dialogs' / (harness + '.txt')))

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# relay FIRSTMATE_HOME HARNESS MODEL EFFORT   ('-' keeps the harness default)
+# relay FIRSTMATE_HOME HARNESS MODEL EFFORT   ('-' keeps the harness default;
+# 'configured' reads config/primary-effort for an automatic primary relay)
 # relay --watch FIRSTMATE_HOME NEW_PANE START_FILE
 # Run after /stow. The successor's first foreground command writes START_FILE
 # before waiting for the old primary's process/lock. Only that mark permits
@@ -17,6 +18,13 @@ if [ "${1:-}" = --watch ]; then
   [ "$new" != "$pane" ] && [ -f "$started" ] || { echo 'relay: invalid successor or missing start file' >&2; exit 2; }
 else
   home=${1:?firstmate home} harness=${2:?harness: claude or codex} model=${3:?model} effort=${4:?effort}
+  if [ "$effort" = configured ]; then
+    effort=$(cat "$home/config/primary-effort") || { echo 'relay: cannot read config/primary-effort' >&2; exit 2; }
+    case "$effort" in
+      low|medium|high|xhigh|max|ultra) ;;
+      *) echo 'relay: invalid config/primary-effort' >&2; exit 2 ;;
+    esac
+  fi
   case $harness in
     claude) cmd=(claude) m=(--model "$model") e=(--effort "$effort") ;;
     codex) cmd=(codex --no-daemon) m=(-m "$model") e=(-c "model_reasoning_effort=$effort") ;;
