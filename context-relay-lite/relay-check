@@ -55,8 +55,8 @@ def number(value):
     return None
 
 
-def evaluate(home, payload):
-    role = 'worker' if os.environ.get('FM_TASK_ID') else 'primary'
+def evaluate(home, payload, supervisor=False):
+    role = 'worker' if os.environ.get('FM_TASK_ID') else ('supervisor' if supervisor else 'primary')
     result = {'schema': 'relay-lite.check.v1', 'role': role, 'harness': None,
               'model': None, 'used_tokens': None, 'window_tokens': None,
               'percent_used': None, 'threshold_tokens': None, 'threshold_percent': None,
@@ -64,8 +64,8 @@ def evaluate(home, payload):
     if payload.get('stop_hook_active'):
         result.update(state='skipped', reason='stop_hook_active')
         return result
-    if role == 'primary' and os.path.realpath(payload.get('cwd') or os.getcwd()) != home:
-        result.update(state='skipped', reason='outside_primary_home')
+    if role != 'worker' and os.path.realpath(payload.get('cwd') or os.getcwd()) != home:
+        result.update(state='skipped', reason=f'outside_{role}_home')
         return result
     try:
         with open(os.path.join(home, 'config/relay-lite.json')) as stream:
@@ -123,14 +123,17 @@ def evaluate(home, payload):
 
 
 def main():
-    json_output = len(sys.argv) > 1 and sys.argv[1] == '--json'
+    args = sys.argv[1:]
+    json_output = '--json' in args
+    supervisor = '--supervisor' in args
+    args = [arg for arg in args if arg not in ('--json', '--supervisor')]
     try:
-        home = os.path.realpath(sys.argv[2] if json_output else sys.argv[1])
+        home = os.path.realpath(args[0])
         try:
             payload = json.load(sys.stdin)
         except ValueError:
             payload = {}
-        result = evaluate(home, payload if isinstance(payload, dict) else {})
+        result = evaluate(home, payload if isinstance(payload, dict) else {}, supervisor)
     except (ValueError, TypeError, IndexError):
         return 0
     if json_output:
@@ -141,6 +144,8 @@ def main():
         detail += (' of ' + str(result['window_tokens'])) if result['window_tokens'] else ' (window unknown)'
         if result['role'] == 'worker':
             print(f'Context is {detail}: relay now. Finish the current operation safely, write a handoff note and ask the primary to relaunch this task with fm-control.sh --note-file.', file=sys.stderr)
+        elif result['role'] == 'supervisor':
+            print(f'Context is {detail}: relay now. Follow context-relay-lite/supervisor.md: update the handoff, run relay --supervisor with your current harness/model/effort and vigilance PID, resolve authorized startup dialogs, and resume the SAME successor with --watch-supervisor until it confirms active vigilance. Keep this supervisor running until then.', file=sys.stderr)
         else:
             print(f'Context is {detail}: relay now (relay skill).', file=sys.stderr)
         return 2

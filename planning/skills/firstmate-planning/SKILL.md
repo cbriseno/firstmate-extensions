@@ -95,6 +95,11 @@ it restores only unchanged managed files from the journal/backup and preserves a
 specs, plans, constitution and decisions. Disable merely stops future selection and
 keeps all files. Keep the backup while prepared. No Git automation or network is used.
 
+## Simplicity rules
+
+9. Fix the root cause, not the symptom, and fix it at its most general level: before adding a case, list or exception, ask what general mechanism produced this failure and correct that. Be critical of the request, the plan and your own fix; a growing list of hardcoded scenarios means the general problem is still open.
+10. Question every block before escalating to the captain: if a prior rule or decision answers it, it is already authorized, it is reversible, or it contradicts what was asked, decide with your recommendation and record it. Quota and cost are reported, never a reason to wait. Interrupt the captain only for a real, critical block that needs the captain's judgment.
+
 ## Choose a route
 
 Establish the goal, current repository state, scope, uncertainty, risk, coupling, and observable acceptance. Apply the first relevant conditions together; labels alone do not override the actual work:
@@ -114,6 +119,8 @@ Establish the goal, current repository state, scope, uncertainty, risk, coupling
 A short plan suffices for small work only if it resolves the decisions and acceptance. Investigate uncertainty that could change scope before fixing units. When conditions overlap, apply all relevant constraints and choose the deeper route when required; do not infer Spec Kit from size, file count or a name alone. Record the route and why, and delegate substantial investigation rather than absorbing transcripts. A missing material decision or evidence produces a bounded investigation or escalation under existing authority, not an invented answer.
 
 ## Plan, review, and delegate
+
+Make the plan's assumptions visible and start without waiting for answers. When the captain gives feedback on work already completed, say in one line whether it requires rework.
 
 For a Spec Kit route, use the following sequence under Firstmate's existing authority and project delivery mode:
 

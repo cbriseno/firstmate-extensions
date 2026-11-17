@@ -10,15 +10,63 @@
 # answer authorized startup dialogs, then watch again, keeping this same pane.
 # After 60 s, or immediately for login, keep the primary and use its configured
 # alert route with the blocking screen. Never start a second successor on retry.
+# Supervisor mode (no Firstmate lock):
+# relay --supervisor HOME HARNESS MODEL EFFORT HANDOFF OLD_VIGILANCE_PID
+# relay --watch-supervisor HOME NEW_PANE START_FILE HANDOFF OLD_VIGILANCE_PID OLD_VIGILANCE_START
+# Successor, only AFTER reading HANDOFF and starting its own vigilance:
+# relay --ready HOME START_FILE NEW_VIGILANCE_PID
+# HOME is the supervisor cwd; HANDOFF must be an absolute, existing file.
+# Keep the current harness/model/effort (configured is primary-only).
+# Start vigilance and confirm readiness in the host context, outside any tool
+# sandbox: use its actual host background PID, not a sandbox or shell PID.
+# Login or >60 s startup: retain the old supervisor and use its alert route.
 set -eu
+process_start() {
+  LC_ALL=C TZ=UTC ps -o lstart= -p "$1" 2>/dev/null
+}
+same_process() {
+  [ -n "$2" ] && [ "$(process_start "$1")" = "$2" ]
+}
+if [ "${1:-}" = --help ]; then
+  sed -n '2,/^set -eu/p' "$0" | sed '$d;s/^# \{0,1\}//'
+  exit 0
+fi
+supervisor=0
+case "${1:-}" in
+  --supervisor|--watch-supervisor) supervisor=1 ;;
+  --ready)
+    home=${2:?supervisor home} started=${3:?start file} vigilance=${4:?vigilance PID}
+    case "$started" in "$home"/state/relay-start.*) ;; *) exit 2 ;; esac
+    case "$vigilance" in ''|*[!0-9]*|0|1) exit 2 ;; esac
+    [ -f "$started" ] && kill -0 "$vigilance" 2>/dev/null || exit 2
+    vigilance_start=$(process_start "$vigilance")
+    [ -n "$vigilance_start" ] || exit 2
+    printf 'watching %s\n%s\n' "$vigilance" "$vigilance_start" > "$started"
+    exit 0 ;;
+esac
 pane=${HERDR_PANE_ID:?relay must run inside a Herdr pane}
-if [ "${1:-}" = --watch ]; then
+if [ "$supervisor" = 1 ]; then
+  if [ "$1" = --watch-supervisor ]; then
+    handoff=${5:?absolute handoff file} old_vigilance=${6:?outgoing vigilance PID}
+    old_start=${7:?outgoing vigilance start from original launch}
+  else
+    handoff=${6:?absolute handoff file} old_vigilance=${7:?outgoing vigilance PID}
+    old_start=$(process_start "$old_vigilance")
+    [ -n "$old_start" ] || { echo 'relay: outgoing vigilance is not running' >&2; exit 2; }
+  fi
+  case "$handoff" in /*) ;; *) echo 'relay: handoff must be absolute' >&2; exit 2 ;; esac
+  [ -f "$handoff" ] || { echo 'relay: missing handoff' >&2; exit 2; }
+  case "$old_vigilance" in ''|*[!0-9]*|0|1) echo 'relay: invalid vigilance PID' >&2; exit 2 ;; esac
+fi
+if [ "${1:-}" = --watch ] || [ "${1:-}" = --watch-supervisor ]; then
   home=${2:?firstmate home} new=${3:?new pane} started=${4:?start file}
   case "$started" in "$home"/state/relay-start.*) ;; *) echo 'relay: wrong start file' >&2; exit 2 ;; esac
   [ "$new" != "$pane" ] && [ -f "$started" ] || { echo 'relay: invalid successor or missing start file' >&2; exit 2; }
 else
+  [ "$supervisor" = 0 ] || shift
   home=${1:?firstmate home} harness=${2:?harness: claude or codex} model=${3:?model} effort=${4:?effort}
   if [ "$effort" = configured ]; then
+    [ "$supervisor" = 0 ] || { echo "relay: supervisor requires explicit effort" >&2; exit 2; }
     effort=$(cat "$home/config/primary-effort") || { echo 'relay: cannot read config/primary-effort' >&2; exit 2; }
     case "$effort" in
       low|medium|high|xhigh|max|ultra) ;;
@@ -30,29 +78,100 @@ else
     codex) cmd=(codex --no-daemon) m=(-m "$model") e=(-c "model_reasoning_effort=$effort") ;;
     *) echo "relay: unsupported harness '$harness' (claude or codex)" >&2; exit 2 ;;
   esac
-  old=$(herdr pane process-info --pane "$pane" |
-    python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["process_info"]["foreground_processes"][0]["pid"])')
+  if [ "$supervisor" = 0 ]; then
+    old=$(herdr pane process-info --pane "$pane" |
+      python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["process_info"]["foreground_processes"][0]["pid"])')
+  fi
   mkdir -p "$home/state"
-  started=$(mktemp "$home/state/relay-start.XXXXXX")
-  printf -v start_command 'printf started > %q && while kill -0 %q 2>/dev/null; do sleep 1; done && FM_SESSION_START_TIMEOUT=600 bin/fm-session-start.sh' "$started" "$old"
-  printf -v start_command '(cd %q && %s)' "$home" "$start_command"
-  prompt="Take the firstmate role. Your FIRST action must run this exact foreground command, in the host context outside any tool sandbox (the lock follows real process ancestry), with a 15 minute tool timeout: \`$start_command\`. It marks that you started before waiting for the previous primary to release its lock. Then read the stow result and current state, and keep every pending item."
-  [ "$model" = - ] || cmd+=("${m[@]}")
-  [ "$effort" = - ] || cmd+=("${e[@]}")
-  cmd+=("$prompt")
-  new=$(herdr pane split "$pane" --direction right --cwd "$home" --no-focus |
-    python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-  herdr pane run "$new" "cd $(printf %q "$home") && $(printf '%q ' "${cmd[@]}")"
+  # Serialize launches and identify the outgoing process, including PID reuse.
+  identity_pid=${old:-$old_vigilance}
+  start=$(process_start "$identity_pid") || start=
+  [ -n "$start" ] || start=unknown
+  identity=$(python3 -c 'import base64, sys; print(base64.urlsafe_b64encode("\0".join(sys.argv[1:]).encode()).decode().rstrip("="))' "$pane" "$supervisor" "$identity_pid" "$start")
+  record="$home/state/relay-launch.$identity"
+  launch_lock="$home/state/relay-launch.lock"
+  lock_wait=${RELAY_LOCK_WAIT_SECONDS:-10}
+  case "$lock_wait" in ''|*[!0-9]*) echo 'relay: invalid lock wait' >&2; exit 2 ;; esac
+  waited=0
+  until mkdir "$launch_lock" 2>/dev/null; do
+    if [ "$waited" -ge "$lock_wait" ]; then
+      echo "relay: launch lock busy after ${lock_wait}s: $launch_lock" >&2
+      cat "$launch_lock/owner" >&2 2>/dev/null || true
+      printf 'relay: after verifying that owner has exited, skip this lock with: rm -rf -- %q\n' "$launch_lock" >&2
+      exit 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  trap 'rm -f -- "$launch_lock/owner"; rmdir -- "$launch_lock"' EXIT
+  printf '%s\n%s\n' "$$" "$(process_start "$$")" > "$launch_lock/owner"
+  trap 'exit 1' HUP INT TERM
+  if [ -f "$record" ]; then
+    { IFS= read -r new; IFS= read -r started; IFS= read -r saved_start || true; } < "$record"
+    [ "$supervisor" = 0 ] || old_start=$saved_start
+    [ -f "$started" ] || { echo "relay: successor $new already completed" >&2; exit 1; }
+  else
+    started=$(mktemp "$home/state/relay-start.XXXXXX")
+    if [ "$supervisor" = 0 ]; then
+      printf -v start_command 'printf started > %q && while kill -0 %q 2>/dev/null; do sleep 1; done && FM_SESSION_START_TIMEOUT=600 bin/fm-session-start.sh' "$started" "$old"
+      printf -v start_command '(cd %q && %s)' "$home" "$start_command"
+      prompt="Take the firstmate role. Your FIRST action must run this exact foreground command, in the host context outside any tool sandbox (the lock follows real process ancestry), with a 15 minute tool timeout: \`$start_command\`. It marks that you started before waiting for the previous primary to release its lock. Then read the stow result and current state, and keep every pending item."
+    else
+      printf -v ready_command '%q --ready %q %q <your-vigilance-pid>' "$0" "$home" "$started"
+      prompt="Take over as the captain's supervisor in $home. Read the complete handoff at $handoff and preserve all pending work and notification policy. Start the vigilance specified there in the background in the host context outside any tool sandbox, verify it is running, then confirm readiness in that same host context by running: $ready_command . Use the actual vigilance PID. Do not write readiness before watching. This is a supervisor relay, not a Firstmate primary session; do not run fm-session-start.sh."
+    fi
+    [ "$model" = - ] || cmd+=("${m[@]}")
+    [ "$effort" = - ] || cmd+=("${e[@]}")
+    cmd+=("$prompt")
+    if ! new=$(herdr pane split "$pane" --direction right --cwd "$home" --no-focus |
+      python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])'); then
+      rm -f -- "$started"
+      exit 1
+    fi
+    printf '%s\n%s\n%s\n' "$new" "$started" "${old_start:-$start}" > "$record"
+    if ! herdr pane run "$new" "cd $(printf %q "$home") && $(printf '%q ' "${cmd[@]}")"; then
+      rm -f -- "$record" "$started"
+      exit 1
+    fi
+  fi
+  rm -f -- "$launch_lock/owner"
+  rmdir -- "$launch_lock"
+  trap - EXIT HUP INT TERM
 fi
 for ((i=0; i<${RELAY_WAIT_SECONDS:-5}; i++)); do
-  if [ "$(cat "$started")" = started ]; then
-    herdr pane close "$pane"
+  ready=$(head -n 1 "$started")
+  if [ "$supervisor" = 1 ]; then
+    vigilance=${ready#watching }
+    case "$vigilance" in ''|*[!0-9]*|0|1) ready= ;;
+      *) vigilance_start=$(sed -n '2p' "$started")
+         same_process "$vigilance" "$vigilance_start" && ready=started || ready= ;;
+    esac
+  fi
+  if [ "$ready" = started ]; then
+    if [ "$supervisor" = 1 ]; then
+      [ "$vigilance" != "$old_vigilance" ] || { echo 'relay: successor reused old vigilance' >&2; exit 2; }
+      if ! same_process "$old_vigilance" "$old_start"; then
+        echo 'relay: outgoing vigilance identity changed; retaining this pane without signaling that PID' >&2
+        exit 2
+      fi
+      kill "$old_vigilance"
+      printf '\nSupervisor relay %s: %s -> %s; successor vigilance PID %s confirmed.\n' "$(date -u +%FT%TZ)" "$pane" "$new" "$vigilance" >> "$handoff"
+    fi
+    for candidate in "$home"/state/relay-launch.*; do
+      [ -f "$candidate" ] || continue
+      [ "$(sed -n '2p' "$candidate")" != "$started" ] || rm -f -- "$candidate"
+    done
     rm -f -- "$started"
+    herdr pane close "$pane"
     exit 0
   fi
   sleep 1
 done
 printf 'relay: successor in pane %s has not written its start mark; this primary stays. Read and answer authorized startup dialogs, then resume this SAME successor:\n' "$new" >&2
-printf '%q --watch %q %q %q\n' "$0" "$home" "$new" "$started" >&2
+if [ "$supervisor" = 1 ]; then
+  printf '%q --watch-supervisor %q %q %q %q %q %q\n' "$0" "$home" "$new" "$started" "$handoff" "$old_vigilance" "$old_start" >&2
+else
+  printf '%q --watch %q %q %q\n' "$0" "$home" "$new" "$started" >&2
+fi
 herdr pane read "$new" --source recent-unwrapped --lines 60 >&2 || true
 exit 1

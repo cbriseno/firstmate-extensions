@@ -63,6 +63,8 @@ The worker instruction requests a safe handoff, and Firstmate owns hook registra
 The primary uses the existing `/relay` skill.
 Installation does not configure hooks; Codex asks once to trust a new hook.
 
+For the captain's supervisor, see the [manual procedure and opt-in setup](context-relay-lite/supervisor.md).
+
 ## License
 
 MIT; see [LICENSE](LICENSE), [NOTICE](NOTICE), and [Spec Kit's license](vendor/spec-kit/1.2.4/LICENSE).

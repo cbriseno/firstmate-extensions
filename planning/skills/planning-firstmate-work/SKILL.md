@@ -29,7 +29,14 @@ worktree, and the project's prepared and verified restricted Spec Kit v1.2.4 cor
 these or the required stages are unavailable, report what is missing to Firstmate;
 ask Firstmate to arrange the extension's guarded preparation in an authorized worker; do not run a manual installer or initialize Spec Kit yourself.
 
+## Simplicity rules
+
+9. Fix the root cause, not the symptom, and fix it at its most general level: before adding a case, list or exception, ask what general mechanism produced this failure and correct that. Be critical of the request, the plan and your own fix; a growing list of hardcoded scenarios means the general problem is still open.
+10. Question every block before escalating to the captain: if a prior rule or decision answers it, it is already authorized, it is reversible, or it contradicts what was asked, decide with your recommendation and record it. Quota and cost are reported, never a reason to wait. Interrupt the captain only for a real, critical block that needs the captain's judgment.
+
 ## Steps
+
+Make the plan's assumptions visible and start without waiting for answers. When the captain gives feedback on work already completed, say in one line whether it requires rework.
 
 1. Read the brief, current requirements, relevant project instructions, repository
    state, and any existing plan. Identify invariants, known decisions, uncertainties,

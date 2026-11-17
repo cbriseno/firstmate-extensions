@@ -29,6 +29,11 @@ revision; and the prepared, verified restricted Spec Kit v1.2.4 core analyze sta
 a source, revision, or the stage cannot be verified, report the gap to Firstmate;
 do not claim an independent or complete review. Do not install or initialize it.
 
+## Simplicity rules
+
+9. Fix the root cause, not the symptom, and fix it at its most general level: before adding a case, list or exception, ask what general mechanism produced this failure and correct that. Be critical of the request, the plan and your own fix; a growing list of hardcoded scenarios means the general problem is still open.
+10. Question every block before escalating to the captain: if a prior rule or decision answers it, it is already authorized, it is reversible, or it contradicts what was asked, decide with your recommendation and record it. Quota and cost are reported, never a reason to wait. Interrupt the captain only for a real, critical block that needs the captain's judgment.
+
 ## Steps
 
 1. Read the assignment and source requirements independently of the plan, then inspect
@@ -39,6 +44,8 @@ do not claim an independent or complete review. Do not install or initialize it.
    applying them. Run the core analysis only within the limits below; report a
    conflict that prevents safe analysis instead of following the conflicting step.
 3. Check each item against evidence:
+   - Does the plan resolve the general problem and its root cause, or only this case?
+   - Does the plan wait for quota or cost? Such waits are not allowed; report quota and cost instead.
    - Every current requirement has a responsible unit and sufficient verification.
    - Relevant global invariants, integration, compatibility and failure cases are
      included in acceptance.

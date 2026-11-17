@@ -5,6 +5,7 @@
 **Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
 
 **Note**: This template is filled in by the `speckit-plan` command; its definition describes the execution workflow.
+**Planning rule**: Make assumptions visible in the plan and start without waiting for answers. If the captain gives feedback on completed work, say in one line whether it requires rework.
 
 ## Summary
 
